@@ -1,16 +1,11 @@
 import Foundation
 
 // MARK: - Time Formatting Utilities
-enum TimeFormatter {
+struct TimeFormatter: Sendable {
     
     /// Formats time in MM:SS or H:MM:SS format
-    /// - Parameter seconds: Time duration in seconds
-    /// - Returns: Formatted time string
     static func formatTime(_ seconds: Double) -> String {
-        // Handle edge cases
-        guard seconds.isFinite && seconds >= 0 else {
-            return "0:00"
-        }
+        guard seconds.isFinite && seconds >= 0 else { return "0:00" }
         
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
@@ -24,13 +19,9 @@ enum TimeFormatter {
         }
     }
     
-    /// Formats time with explicit hours display (always H:MM:SS)
-    /// - Parameter seconds: Time duration in seconds
-    /// - Returns: Formatted time string with hours
+    /// Formats time with explicit hours display
     static func formatTimeWithHours(_ seconds: Double) -> String {
-        guard seconds.isFinite && seconds >= 0 else {
-            return "0:00:00"
-        }
+        guard seconds.isFinite && seconds >= 0 else { return "0:00:00" }
         
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
@@ -40,60 +31,33 @@ enum TimeFormatter {
         return String(format: "%d:%02d:%02d", hours, minutes, secs)
     }
     
-    /// Formats time in compact format (e.g., "1h 23m", "45m", "2m")
-    /// - Parameter seconds: Time duration in seconds
-    /// - Returns: Compact formatted time string
+    /// Formats time in compact format
     static func formatTimeCompact(_ seconds: Double) -> String {
-        guard seconds.isFinite && seconds >= 0 else {
-            return "0m"
-        }
+        guard seconds.isFinite && seconds >= 0 else { return "0m" }
         
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         
         if hours > 0 {
-            if minutes > 0 {
-                return "\(hours)h \(minutes)m"
-            } else {
-                return "\(hours)h"
-            }
-        } else if minutes > 0 {
-            return "\(minutes)m"
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
         } else {
-            return "< 1m"
+            return minutes > 0 ? "\(minutes)m" : "< 1m"
         }
     }
     
-    /// Formats remaining time with "left" suffix
-    /// - Parameter seconds: Remaining time in seconds
-    /// - Returns: Formatted remaining time string
     static func formatTimeRemaining(_ seconds: Double) -> String {
-        let formattedTime = formatTime(seconds)
-        return "\(formattedTime) left"
+        return "\(formatTime(seconds)) left"
     }
     
     static func formatDuration(_ seconds: Double) -> String {
-        // Für Hörbücher ist die Gesamtdauer meist in Stunden
-        return formatTimeWithHours(seconds) // Immer H:MM:SS für Duration
+        return formatTimeWithHours(seconds)
     }
 }
 
-
-// MARK: - Double Extension for convenience
+// MARK: - Double Extension
 extension Double {
-    /// Formats the double value as time string
-    var formattedAsTime: String {
-        TimeFormatter.formatTime(self)
-    }
-    
-    /// Formats the double value as compact time string
-    var formattedAsCompactTime: String {
-        TimeFormatter.formatTimeCompact(self)
-    }
-    
-    /// Formats the double value as remaining time string
-    var formattedAsTimeRemaining: String {
-        TimeFormatter.formatTimeRemaining(self)
-    }
+    var formattedAsTime: String { TimeFormatter.formatTime(self) }
+    var formattedAsCompactTime: String { TimeFormatter.formatTimeCompact(self) }
+    var formattedAsTimeRemaining: String { TimeFormatter.formatTimeRemaining(self) }
 }

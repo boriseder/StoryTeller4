@@ -1,7 +1,6 @@
 import SwiftUI
 import Combine
 
-// MARK: - Author Image Loader
 @MainActor
 class AuthorImageLoader: ObservableObject {
     @Published var image: UIImage?
@@ -19,10 +18,7 @@ class AuthorImageLoader: ObservableObject {
     }
     
     func load() {
-        // Skip if already loaded or currently loading
-        if image != nil || isLoading {
-            return
-        }
+        if image != nil || isLoading { return }
         
         loadTask?.cancel()
         hasError = false
@@ -36,63 +32,54 @@ class AuthorImageLoader: ObservableObject {
     private func loadAuthorImage() async {
         let cacheKey = "author_\(author.id)"
         
-        // Priority 1: Memory cache
+        // 1. Memory
         if let cachedImage = cacheManager.getCachedImage(for: cacheKey) {
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.image = cachedImage
-                self.isLoading = false
-            }
-            AppLogger.cache.debug("Loaded author image from memory cache")
+            updateImage(cachedImage)
             return
         }
         
-        // Priority 2: Disk cache
+        // 2. Disk
         if let diskCachedImage = cacheManager.getDiskCachedImage(for: cacheKey) {
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.image = diskCachedImage
-                self.isLoading = false
-            }
-            AppLogger.cache.debug("Loaded author image from disk cache")
+            updateImage(diskCachedImage)
             return
         }
         
-        // Priority 3: Download from server using CoverDownloadManager
+        // 3. Network
         if let onlineImage = await downloadAuthorImage() {
-            // Cache the downloaded image
             cacheManager.setCachedImage(onlineImage, for: cacheKey)
-            cacheManager.setDiskCachedImage(onlineImage, for: cacheKey)
-            
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.image = onlineImage
-                self.isLoading = false
-            }
-            AppLogger.cache.debug("Downloaded and cached author image")
+            // Disk cache handled by DownloadManager
+            updateImage(onlineImage)
             return
         }
         
-        // No image found
-        await MainActor.run { [weak self] in
-            guard let self else { return }
+        await MainActor.run {
             self.hasError = true
             self.isLoading = false
         }
     }
     
-    private func downloadAuthorImage() async -> UIImage? {
-        guard let api = api else {
-            return nil
+    private func updateImage(_ image: UIImage) {
+        Task { @MainActor in
+            self.image = image
+            self.isLoading = false
         }
+    }
+    
+    private func downloadAuthorImage() async -> UIImage? {
+        guard let api = api else { return nil }
         
-        // Use CoverDownloadManager to download (it handles baseURL and auth)
+        // Capture isolation-safe values
+        let baseURL = api.baseURLString
+        let token = api.authToken
+        let authorId = author.id
+        
         do {
-            let image = try await CoverDownloadManager.shared.downloadAuthorImage(
-                for: author,
-                api: api
+            return try await CoverDownloadManager.shared.downloadAuthorImage(
+                for: authorId,
+                baseURL: baseURL,
+                authToken: token,
+                cacheManager: CoverCacheManager.shared
             )
-            return image
         } catch {
             AppLogger.network.error("Failed to download author image: \(error)")
             return nil
@@ -109,4 +96,3 @@ class AuthorImageLoader: ObservableObject {
         loadTask?.cancel()
     }
 }
-

@@ -1,95 +1,65 @@
 import Foundation
+import Combine
 
-// MARK: - Protocol
-
-/// Service responsible for validating and repairing downloads in the background
-protocol BackgroundHealingService {
-    /// Starts the background healing process
-    func start()
+@MainActor
+final class BackgroundHealingService: Sendable {
     
-    /// Stops the background healing process
-    func stop()
-    
-    /// Manually triggers a validation and repair cycle
-    func healNow() async
-}
-
-// MARK: - Default Implementation
-
-final class DefaultBackgroundHealingService: BackgroundHealingService {
-    
-    // MARK: - Properties
     private let storageService: DownloadStorageService
     private let validationService: DownloadValidationService
-    private var healingTask: Task<Void, Never>?
-    private let onBookRemoved: (String) -> Void
+    private let onBookRemoved: @Sendable (String) -> Void
+    private var timer: Timer?
     
-    // MARK: - Initialization
     init(
         storageService: DownloadStorageService,
         validationService: DownloadValidationService,
-        onBookRemoved: @escaping (String) -> Void
+        onBookRemoved: @escaping @Sendable (String) -> Void
     ) {
         self.storageService = storageService
         self.validationService = validationService
         self.onBookRemoved = onBookRemoved
     }
     
-    // MARK: - BackgroundHealingService
-    
     func start() {
-        healingTask = Task { [weak self] in
-            guard let self = self else { return }
-            
-            // Wait for app to settle
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            
-            await self.healNow()
-            
-            // Monitor network changes for healing opportunities
-            for await _ in NotificationCenter.default.notifications(named: .networkConnectivityChanged) {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                await self.healNow()
+        stop()
+        // Run every 24 hours
+        timer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.performHealing()
             }
         }
         
-        AppLogger.general.debug("[BackgroundHealing] Started")
+        // Run once on start with delay
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+            self.performHealing()
+        }
     }
     
     func stop() {
-        healingTask?.cancel()
-        healingTask = nil
-        AppLogger.general.debug("[BackgroundHealing] Stopped")
+        timer?.invalidate()
+        timer = nil
     }
     
-    func healNow() async {
+    private func performHealing() {
         let books = storageService.loadDownloadedBooks()
         
-        AppLogger.general.debug("[BackgroundHealing] Validating \(books.count) books")
-        
         for book in books {
-            let validation = validationService.validateBookIntegrity(
-                bookId: book.id,
-                storageService: storageService
-            )
+            let result = validationService.validateBookIntegrity(bookId: book.id, storageService: storageService)
             
-            if !validation.isValid {
-                AppLogger.general.debug("[BackgroundHealing] Found corrupt download: \(book.id)")
+            if !result.isValid {
+                AppLogger.general.warn("[HealingService] Book corrupted: \(book.title)")
                 
-                // Delete incomplete/corrupt downloads
                 let bookDir = storageService.bookDirectory(for: book.id)
-                do {
-                    try storageService.deleteBookDirectory(at: bookDir)
-                    onBookRemoved(book.id)
-                    AppLogger.general.debug("[BackgroundHealing] Removed corrupt book: \(book.id)")
-                } catch {
-                    AppLogger.general.error("[BackgroundHealing] Failed to delete corrupt book: \(error)")
-                }
+                try? storageService.deleteBookDirectory(at: bookDir)
+                onBookRemoved(book.id)
             }
         }
     }
     
     deinit {
-        stop()
+        let timerToInvalidate = timer
+        Task { @MainActor in
+            timerToInvalidate?.invalidate()
+        }
     }
 }

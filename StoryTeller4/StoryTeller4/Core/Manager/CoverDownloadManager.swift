@@ -1,91 +1,140 @@
-import Foundation
-import UIKit
-import Combine
+import SwiftUI
 
+// MARK: - Cover Download Manager
 actor CoverDownloadManager {
     static let shared = CoverDownloadManager()
     
-    private var activeDownloads: [String: Task<UIImage?, Error>] = [:]
+    private var downloadTasks: [String: Task<UIImage?, Error>] = [:]
     
-    // Dependencies should be passed in methods to avoid actor state issues
-    // or stored if they are Sendable.
+    private init() {}
+    
+    // MARK: - Book Cover
     
     func downloadCover(
         for bookId: String,
         coverPath: String?,
-        api: AudiobookshelfClient,
+        baseURL: String,
+        authToken: String,
         cacheManager: CoverCacheManager
-    ) async -> UIImage? {
+    ) async throws -> UIImage? {
         guard let coverPath = coverPath else { return nil }
+        let cacheKey = "online_\(bookId)"
         
-        // Check memory cache (MainActor access required for CoverCacheManager if it's ObservableObject)
-        // We'll assume the caller might have checked, but let's check here via Task if needed.
-        // Actually, for performance, memory cache check should ideally be done by caller (UI).
-        // Here we handle the download logic.
-        
-        // Deduplicate downloads
-        if let existingTask = activeDownloads[bookId] {
-            return try? await existingTask.value
+        if let existingTask = downloadTasks[cacheKey] {
+            return try await existingTask.value
         }
         
-        // Capture configuration values synchronously to avoid actor isolation errors
-        // api is a class, so accessing properties might be restricted.
-        let baseURL = api.baseURLString
-        let token = api.authToken
-        
         let task = Task<UIImage?, Error> {
-            // Construct URL
+            defer { Task { await self.removeTask(for: cacheKey) } }
+            
             guard let url = URL(string: "\(baseURL)\(coverPath)") else {
-                throw DownloadError.invalidCoverURL
+                throw CoverLoadingError.invalidURL
             }
             
-            // Create Request
             var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 30.0
             
-            // Perform Request
             let (data, response) = try await URLSession.shared.data(for: request)
             
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                throw DownloadError.invalidResponse
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw CoverLoadingError.downloadFailed
             }
             
             guard let image = UIImage(data: data) else {
-                throw DownloadError.invalidImageData
+                throw CoverLoadingError.invalidImageData
             }
             
-            // Resize if needed (expensive operation off main thread)
-            let processedImage = image.preparingThumbnail(of: CGSize(width: 300, height: 450)) ?? image
-            
-            // Cache (fire and forget on MainActor)
-            Task { @MainActor in
-                cacheManager.setDiskCachedImage(processedImage, for: bookId)
+            // Cache on MainActor
+            await MainActor.run {
+                cacheManager.setDiskCachedImage(image, for: bookId)
             }
             
-            return processedImage
+            return image
         }
         
-        activeDownloads[bookId] = task
+        downloadTasks[cacheKey] = task
         
         do {
-            let result = try await task.value
-            activeDownloads[bookId] = nil
-            return result
+            return try await task.value
         } catch {
-            activeDownloads[bookId] = nil
-            return nil
+            removeTask(for: cacheKey)
+            throw error
         }
     }
     
-    func cancelAllDownloads() {
-        for task in activeDownloads.values {
-            task.cancel()
+    // MARK: - Author Image
+    
+    func downloadAuthorImage(
+        for authorId: String,
+        baseURL: String,
+        authToken: String,
+        cacheManager: CoverCacheManager
+    ) async throws -> UIImage? {
+        let cacheKey = "author_\(authorId)"
+        
+        if let existingTask = downloadTasks[cacheKey] {
+            return try await existingTask.value
         }
-        activeDownloads.removeAll()
+        
+        let task = Task<UIImage?, Error> {
+            defer { Task { await self.removeTask(for: cacheKey) } }
+            
+            // Endpoint for author image
+            let coverURLString = "\(baseURL)/api/authors/\(authorId)/image"
+            guard let url = URL(string: coverURLString) else {
+                throw CoverLoadingError.invalidURL
+            }
+            
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 30.0
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw CoverLoadingError.downloadFailed
+            }
+            
+            guard let image = UIImage(data: data) else {
+                throw CoverLoadingError.invalidImageData
+            }
+            
+            // Cache
+            await MainActor.run {
+                cacheManager.setDiskCachedImage(image, for: "author_\(authorId)")
+            }
+            
+            return image
+        }
+        
+        downloadTasks[cacheKey] = task
+        
+        do {
+            return try await task.value
+        } catch {
+            removeTask(for: cacheKey)
+            throw error
+        }
+    }
+    
+    private func removeTask(for cacheKey: String) {
+        downloadTasks.removeValue(forKey: cacheKey)
+    }
+    
+    func cancelAllDownloads() {
+        downloadTasks.values.forEach { $0.cancel() }
+        downloadTasks.removeAll()
     }
     
     func shutdown() {
         cancelAllDownloads()
     }
+}
+
+// Ensure Error is available
+enum CoverLoadingError: Error {
+    case invalidURL
+    case downloadFailed
+    case invalidImageData
 }

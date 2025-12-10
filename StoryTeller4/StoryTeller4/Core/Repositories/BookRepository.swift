@@ -48,27 +48,17 @@ final class BookRepository: BookRepositoryProtocol, Sendable {
     
     func fetchBooks(libraryId: String, collapseSeries: Bool) async throws -> [Book] {
         do {
-            let books = try await api.books.fetchBooks(
-                libraryId: libraryId,
-                limit: 0,
-                collapseSeries: collapseSeries
-            )
-            
+            let books = try await api.books.fetchBooks(libraryId: libraryId, limit: 0, collapseSeries: collapseSeries)
             await cache?.cacheBooks(books, for: libraryId)
-            AppLogger.general.debug("[BookRepository] Fetched \(books.count) books from library \(libraryId)")
+            AppLogger.general.debug("[BookRepository] Fetched \(books.count) books")
             return books
-            
         } catch let decodingError as DecodingError {
             AppLogger.general.debug("[BookRepository] Decoding error: \(decodingError)")
-            if let cachedBooks = await cache?.getCachedBooks(for: libraryId) {
-                return cachedBooks
-            }
+            if let cachedBooks = await cache?.getCachedBooks(for: libraryId) { return cachedBooks }
             throw RepositoryError.decodingError(decodingError)
         } catch let urlError as URLError {
             AppLogger.general.debug("[BookRepository] Network error: \(urlError)")
-            if let cachedBooks = await cache?.getCachedBooks(for: libraryId) {
-                return cachedBooks
-            }
+            if let cachedBooks = await cache?.getCachedBooks(for: libraryId) { return cachedBooks }
             throw RepositoryError.networkError(urlError)
         } catch {
             throw RepositoryError.networkError(error)
@@ -348,9 +338,4 @@ actor BookCache: BookCacheProtocol {
         
         return decoded
     }
-}
-
-// Ensure strictly Sendable for internal struct to satisfy actor isolation
-private struct CacheMetadata: Codable, Sendable {
-    let timestamp: Date
 }

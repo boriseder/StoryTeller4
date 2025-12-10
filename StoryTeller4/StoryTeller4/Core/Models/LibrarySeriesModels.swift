@@ -18,15 +18,7 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     var formattedDuration: String { TimeFormatter.formatTimeCompact(totalDuration) }
     var displayName: String { name }
     
-    init(
-        id: String,
-        name: String,
-        nameIgnorePrefix: String? = nil,
-        nameIgnorePrefixSort: String? = nil,
-        numBooks: Int,
-        books: [LibraryItem]? = nil,
-        addedAt: Date = Date()
-    ) {
+    init(id: String, name: String, nameIgnorePrefix: String? = nil, nameIgnorePrefixSort: String? = nil, numBooks: Int, books: [LibraryItem]? = nil, addedAt: Date = Date()) {
         self.id = id
         self.name = name
         self.nameIgnorePrefix = nameIgnorePrefix
@@ -66,6 +58,9 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         try container.encodeIfPresent(books, forKey: .books)
         try container.encode(TimestampConverter.serverTimestamp(from: addedAt), forKey: .addedAt)
     }
+    
+    static func == (lhs: Series, rhs: Series) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 // MARK: - LibraryItem Model
@@ -110,6 +105,42 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     func chapterIndex(at time: Double) -> Int {
         chapters.firstIndex { $0.contains(time: time) } ?? max(0, chapters.count - 1)
     }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, title, author, chapters, coverPath, collapsedSeries
+    }
+    
+    init(id: String, title: String, author: String?, chapters: [Chapter], coverPath: String?, collapsedSeries: Series?) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.chapters = chapters
+        self.coverPath = coverPath
+        self.collapsedSeries = collapsedSeries
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        chapters = try container.decode([Chapter].self, forKey: .chapters)
+        coverPath = try container.decodeIfPresent(String.self, forKey: .coverPath)
+        collapsedSeries = try container.decodeIfPresent(Series.self, forKey: .collapsedSeries)
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encode(chapters, forKey: .chapters)
+        try container.encodeIfPresent(coverPath, forKey: .coverPath)
+        try container.encodeIfPresent(collapsedSeries, forKey: .collapsedSeries)
+    }
+    
+    static func == (lhs: Book, rhs: Book) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 // MARK: - Library Model
@@ -119,7 +150,6 @@ struct Library: Codable, Identifiable, Equatable, Hashable, Sendable {
     let mediaType: String?
 }
 
-// MARK: - Responses
 struct LibrariesResponse: Codable, Sendable {
     let libraries: [Library]
 }

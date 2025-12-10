@@ -20,6 +20,30 @@ struct PersonalizedSection: Codable, Identifiable, Sendable {
     var icon: String {
         sectionType?.icon ?? "list.bullet"
     }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, label, labelStringKey, type, entities, total
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        label = try container.decode(String.self, forKey: .label)
+        labelStringKey = try container.decodeIfPresent(String.self, forKey: .labelStringKey)
+        type = try container.decode(String.self, forKey: .type)
+        entities = try container.decode([PersonalizedEntity].self, forKey: .entities)
+        total = try container.decode(Int.self, forKey: .total)
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(label, forKey: .label)
+        try container.encodeIfPresent(labelStringKey, forKey: .labelStringKey)
+        try container.encode(type, forKey: .type)
+        try container.encode(entities, forKey: .entities)
+        try container.encode(total, forKey: .total)
+    }
 }
 
 typealias PersonalizedResponse = [PersonalizedSection]
@@ -41,13 +65,54 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
     let imagePath: String?
     let updatedAt: Date?
     
-    private enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey {
         case id, media, libraryId, collapsedSeries
         case name, nameIgnorePrefix, books, addedAt, numBooks
         case authorDescription = "description"
         case imagePath, updatedAt
     }
     
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        media = try container.decodeIfPresent(Media.self, forKey: .media)
+        libraryId = try container.decodeIfPresent(String.self, forKey: .libraryId)
+        collapsedSeries = try container.decodeIfPresent(Series.self, forKey: .collapsedSeries)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        nameIgnorePrefix = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefix)
+        books = try container.decodeIfPresent([LibraryItem].self, forKey: .books)
+        if let timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .addedAt) {
+            addedAt = TimestampConverter.dateFromServer(timestamp)
+        } else { addedAt = nil }
+        numBooks = try container.decodeIfPresent(Int.self, forKey: .numBooks)
+        authorDescription = try container.decodeIfPresent(String.self, forKey: .authorDescription)
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
+        if let timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) {
+            updatedAt = TimestampConverter.dateFromServer(timestamp)
+        } else { updatedAt = nil }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(media, forKey: .media)
+        try container.encodeIfPresent(libraryId, forKey: .libraryId)
+        try container.encodeIfPresent(collapsedSeries, forKey: .collapsedSeries)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(nameIgnorePrefix, forKey: .nameIgnorePrefix)
+        try container.encodeIfPresent(books, forKey: .books)
+        if let addedAt = addedAt {
+            try container.encode(TimestampConverter.serverTimestamp(from: addedAt), forKey: .addedAt)
+        }
+        try container.encodeIfPresent(numBooks, forKey: .numBooks)
+        try container.encodeIfPresent(authorDescription, forKey: .authorDescription)
+        try container.encodeIfPresent(imagePath, forKey: .imagePath)
+        if let updatedAt = updatedAt {
+            try container.encode(TimestampConverter.serverTimestamp(from: updatedAt), forKey: .updatedAt)
+        }
+    }
+    
+    // Computed props (entityType, asLibraryItem, etc.) remain as they were in previous steps
     var entityType: PersonalizedEntityType {
         if media != nil { return .book }
         if books != nil { return .series }
@@ -96,50 +161,6 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
             libraryItems: nil,
             series: nil
         )
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        media = try container.decodeIfPresent(Media.self, forKey: .media)
-        libraryId = try container.decodeIfPresent(String.self, forKey: .libraryId)
-        collapsedSeries = try container.decodeIfPresent(Series.self, forKey: .collapsedSeries)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-        nameIgnorePrefix = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefix)
-        books = try container.decodeIfPresent([LibraryItem].self, forKey: .books)
-        if let timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .addedAt) {
-            addedAt = TimestampConverter.dateFromServer(timestamp)
-        } else {
-            addedAt = nil
-        }
-        numBooks = try container.decodeIfPresent(Int.self, forKey: .numBooks)
-        authorDescription = try container.decodeIfPresent(String.self, forKey: .authorDescription)
-        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
-        if let timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) {
-            updatedAt = TimestampConverter.dateFromServer(timestamp)
-        } else {
-            updatedAt = nil
-        }
-    }
-    
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encodeIfPresent(media, forKey: .media)
-        try container.encodeIfPresent(libraryId, forKey: .libraryId)
-        try container.encodeIfPresent(collapsedSeries, forKey: .collapsedSeries)
-        try container.encodeIfPresent(name, forKey: .name)
-        try container.encodeIfPresent(nameIgnorePrefix, forKey: .nameIgnorePrefix)
-        try container.encodeIfPresent(books, forKey: .books)
-        if let addedAt = addedAt {
-            try container.encode(TimestampConverter.serverTimestamp(from: addedAt), forKey: .addedAt)
-        }
-        try container.encodeIfPresent(numBooks, forKey: .numBooks)
-        try container.encodeIfPresent(authorDescription, forKey: .authorDescription)
-        try container.encodeIfPresent(imagePath, forKey: .imagePath)
-        if let updatedAt = updatedAt {
-            try container.encode(TimestampConverter.serverTimestamp(from: updatedAt), forKey: .updatedAt)
-        }
     }
 }
 
