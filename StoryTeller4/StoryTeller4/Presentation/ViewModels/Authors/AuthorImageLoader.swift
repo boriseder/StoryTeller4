@@ -32,22 +32,18 @@ class AuthorImageLoader: ObservableObject {
     private func loadAuthorImage() async {
         let cacheKey = "author_\(author.id)"
         
-        // 1. Memory
         if let cachedImage = cacheManager.getCachedImage(for: cacheKey) {
             updateImage(cachedImage)
             return
         }
         
-        // 2. Disk
         if let diskCachedImage = cacheManager.getDiskCachedImage(for: cacheKey) {
             updateImage(diskCachedImage)
             return
         }
         
-        // 3. Network
         if let onlineImage = await downloadAuthorImage() {
             cacheManager.setCachedImage(onlineImage, for: cacheKey)
-            // Disk cache handled by DownloadManager
             updateImage(onlineImage)
             return
         }
@@ -68,7 +64,7 @@ class AuthorImageLoader: ObservableObject {
     private func downloadAuthorImage() async -> UIImage? {
         guard let api = api else { return nil }
         
-        // Capture isolation-safe values
+        // DATEN EXTRAHIEREN (auf MainActor) bevor wir in den Hintergrund gehen
         let baseURL = api.baseURLString
         let token = api.authToken
         let authorId = author.id

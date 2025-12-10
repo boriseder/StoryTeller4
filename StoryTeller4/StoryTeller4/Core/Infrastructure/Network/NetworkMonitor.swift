@@ -1,7 +1,6 @@
 import Foundation
 import Network
 
-// MARK: - Network Status
 enum NetworkStatus: Sendable {
     case online
     case offline
@@ -16,19 +15,15 @@ enum NetworkStatus: Sendable {
     }
 }
 
-// Explicit Equatable conformance to avoid isolation issues
 extension NetworkStatus: Equatable {
     nonisolated static func == (lhs: NetworkStatus, rhs: NetworkStatus) -> Bool {
         switch (lhs, rhs) {
-        case (.online, .online), (.offline, .offline), (.unknown, .unknown):
-            return true
-        default:
-            return false
+        case (.online, .online), (.offline, .offline), (.unknown, .unknown): return true
+        default: return false
         }
     }
 }
 
-// MARK: - Protocol
 protocol NetworkMonitoring: Sendable {
     var currentStatus: NetworkStatus { get async }
     func startMonitoring() async
@@ -37,11 +32,9 @@ protocol NetworkMonitoring: Sendable {
     func onStatusChange(_ handler: @escaping @Sendable (NetworkStatus) -> Void) async
 }
 
-// MARK: - Network Monitor Actor
 actor NetworkMonitor: NetworkMonitoring {
     
     private var monitor = NWPathMonitor()
-    // Actors don't need explicit queues for isolation, but NWPathMonitor needs one for callbacks
     private let queue = DispatchQueue(label: "com.storyteller3.networkmonitor")
     private var statusHandler: (@Sendable (NetworkStatus) -> Void)?
     private var watchdogTimer: DispatchSourceTimer?
@@ -52,11 +45,9 @@ actor NetworkMonitor: NetworkMonitoring {
         didSet {
             if currentStatus != oldValue {
                 let status = currentStatus
-                // Notify handler
                 if let handler = statusHandler {
                     Task { @MainActor in handler(status) }
                 }
-                // Post notification
                 if status == .online {
                     Task { @MainActor in
                         NotificationCenter.default.post(name: .networkConnectivityChanged, object: nil)
@@ -75,12 +66,8 @@ actor NetworkMonitor: NetworkMonitoring {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
             let newStatus: NetworkStatus = path.status == .satisfied ? .online : .offline
-            
-            Task {
-                await self.updateStatus(newStatus)
-            }
+            Task { await self.updateStatus(newStatus) }
         }
-        
         monitor.start(queue: queue)
         startWatchdog()
     }
@@ -109,14 +96,10 @@ actor NetworkMonitor: NetworkMonitoring {
     private func startWatchdog() {
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 3, repeating: 3)
-        
         t.setEventHandler { [weak self] in
             guard let self = self else { return }
-            Task {
-                await self.checkWatchdog()
-            }
+            Task { await self.checkWatchdog() }
         }
-        
         watchdogTimer = t
         t.resume()
     }
@@ -133,7 +116,6 @@ actor NetworkMonitor: NetworkMonitoring {
         monitor.cancel()
         let newMonitor = NWPathMonitor()
         monitor = newMonitor
-        
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
             let newStatus: NetworkStatus = path.status == .satisfied ? .online : .offline
@@ -141,14 +123,8 @@ actor NetworkMonitor: NetworkMonitoring {
         }
         monitor.start(queue: queue)
     }
-    
-    deinit {
-        // monitor.cancel() cannot be called safely here in deinit for an actor
-    }
 }
 
-// MARK: - Notification Extension
-// Defined here to ensure visibility
 public extension Notification.Name {
     static let networkConnectivityChanged = Notification.Name("networkConnectivityChanged")
 }

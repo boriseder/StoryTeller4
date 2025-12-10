@@ -3,7 +3,6 @@ import Foundation
 // MARK: - Time Formatting Utilities
 struct TimeFormatter: Sendable {
     
-    /// Formats time in MM:SS or H:MM:SS format
     static func formatTime(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
         
@@ -19,22 +18,17 @@ struct TimeFormatter: Sendable {
         }
     }
     
-    /// Formats time with explicit hours display
     static func formatTimeWithHours(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00:00" }
-        
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let secs = totalSeconds % 60
-        
         return String(format: "%d:%02d:%02d", hours, minutes, secs)
     }
     
-    /// Formats time in compact format
     static func formatTimeCompact(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0m" }
-        
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
@@ -55,7 +49,6 @@ struct TimeFormatter: Sendable {
     }
 }
 
-// MARK: - Double Extension
 extension Double {
     var formattedAsTime: String { TimeFormatter.formatTime(self) }
     var formattedAsCompactTime: String { TimeFormatter.formatTimeCompact(self) }

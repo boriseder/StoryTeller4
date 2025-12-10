@@ -8,7 +8,8 @@ actor CoverDownloadManager {
     
     private init() {}
     
-    // MARK: - Book Cover
+    // STRATEGIE-ÄNDERUNG: Wir übergeben Strings statt des ganzen 'api' Objekts.
+    // Das macht den Actor unabhängig von der Isolation des Clients.
     
     func downloadCover(
         for bookId: String,
@@ -45,7 +46,7 @@ actor CoverDownloadManager {
                 throw CoverLoadingError.invalidImageData
             }
             
-            // Cache on MainActor
+            // Cache auf dem MainActor (da CacheManager @MainActor ist)
             await MainActor.run {
                 cacheManager.setDiskCachedImage(image, for: bookId)
             }
@@ -63,8 +64,6 @@ actor CoverDownloadManager {
         }
     }
     
-    // MARK: - Author Image
-    
     func downloadAuthorImage(
         for authorId: String,
         baseURL: String,
@@ -80,7 +79,6 @@ actor CoverDownloadManager {
         let task = Task<UIImage?, Error> {
             defer { Task { await self.removeTask(for: cacheKey) } }
             
-            // Endpoint for author image
             let coverURLString = "\(baseURL)/api/authors/\(authorId)/image"
             guard let url = URL(string: coverURLString) else {
                 throw CoverLoadingError.invalidURL
@@ -100,7 +98,6 @@ actor CoverDownloadManager {
                 throw CoverLoadingError.invalidImageData
             }
             
-            // Cache
             await MainActor.run {
                 cacheManager.setDiskCachedImage(image, for: "author_\(authorId)")
             }
@@ -132,7 +129,6 @@ actor CoverDownloadManager {
     }
 }
 
-// Ensure Error is available
 enum CoverLoadingError: Error {
     case invalidURL
     case downloadFailed

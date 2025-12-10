@@ -18,7 +18,6 @@ class BookCoverLoader: ObservableObject {
     }
     
     func loadCover() {
-        // 1. Try Memory/Disk Cache synchronously if possible
         if let cached = CoverCacheManager.shared.getCachedImage(for: book.id) {
             self.image = cached
             return
@@ -29,13 +28,12 @@ class BookCoverLoader: ObservableObject {
             return
         }
         
-        // 2. Download
         guard let api = api else { return }
         guard let coverPath = book.coverPath else { return }
         
         isLoading = true
         
-        // Capture strings on MainActor before passing to background actor to avoid isolation issues
+        // Extrahieren für Thread-Safety
         let baseURL = api.baseURLString
         let token = api.authToken
         let bookId = book.id
@@ -44,7 +42,6 @@ class BookCoverLoader: ObservableObject {
             var downloadedImage: UIImage?
             
             do {
-                // Fix: Added 'try' to the throwing async call
                 downloadedImage = try await CoverDownloadManager.shared.downloadCover(
                     for: bookId,
                     coverPath: coverPath,
@@ -56,9 +53,7 @@ class BookCoverLoader: ObservableObject {
                 AppLogger.network.error("[BookCoverLoader] Failed to download cover: \(error)")
             }
             
-            // Capture result for MainActor update
             let finalImage = downloadedImage
-            
             Task { @MainActor in
                 self.isLoading = false
                 if let image = finalImage {

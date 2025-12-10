@@ -14,20 +14,15 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     let series: [Series]?
     
     var bookCount: Int { libraryItems?.count ?? numBooks ?? 0 }
+    var hasImage: Bool { imagePath != nil && !(imagePath?.isEmpty ?? true) }
+    var displayName: String { name }
     
-    init(
-        id: String,
-        name: String,
-        description: String? = nil,
-        imagePath: String? = nil,
-        libraryId: String,
-        addedAt: Date = Date(),
-        updatedAt: Date = Date(),
-        numBooks: Int? = nil,
-        lastFirst: String? = nil,
-        libraryItems: [LibraryItem]? = nil,
-        series: [Series]? = nil
-    ) {
+    func imageURL(baseURL: String) -> URL? {
+        guard let imagePath = imagePath else { return nil }
+        return URL(string: "\(baseURL)\(imagePath)")
+    }
+    
+    init(id: String, name: String, description: String? = nil, imagePath: String? = nil, libraryId: String, addedAt: Date = Date(), updatedAt: Date = Date(), numBooks: Int? = nil, lastFirst: String? = nil, libraryItems: [LibraryItem]? = nil, series: [Series]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -58,17 +53,10 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         libraryItems = try container.decodeIfPresent([LibraryItem].self, forKey: .libraryItems)
         series = try container.decodeIfPresent([Series].self, forKey: .series)
         
-        if let added = try? container.decode(Int64.self, forKey: .addedAt) {
-            addedAt = TimestampConverter.dateFromServer(TimeInterval(added))
-        } else {
-            addedAt = Date()
-        }
-        
-        if let updated = try? container.decode(Int64.self, forKey: .updatedAt) {
-            updatedAt = TimestampConverter.dateFromServer(TimeInterval(updated))
-        } else {
-            updatedAt = Date()
-        }
+        if let added = try? container.decode(Int64.self, forKey: .addedAt) { addedAt = TimestampConverter.dateFromServer(TimeInterval(added)) }
+        else { addedAt = Date() }
+        if let updated = try? container.decode(Int64.self, forKey: .updatedAt) { updatedAt = TimestampConverter.dateFromServer(TimeInterval(updated)) }
+        else { updatedAt = Date() }
     }
     
     func encode(to encoder: Encoder) throws {
@@ -85,6 +73,9 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         try container.encodeIfPresent(libraryItems, forKey: .libraryItems)
         try container.encodeIfPresent(series, forKey: .series)
     }
+    
+    static func == (lhs: Author, rhs: Author) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 struct AuthorsResponse: Codable, Sendable {

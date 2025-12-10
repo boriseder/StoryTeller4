@@ -1,26 +1,20 @@
 import Foundation
 
-// MARK: - Timestamp Utilities
-enum TimestampConverter {
-    static func dateFromServer(_ timestamp: TimeInterval) -> Date {
-        Date(timeIntervalSince1970: timestamp / 1000)
-    }
-    
-    static func serverTimestamp(from date: Date) -> TimeInterval {
-        date.timeIntervalSince1970 * 1000
-    }
-    
-    static var currentServerTimestamp: TimeInterval {
-        serverTimestamp(from: Date())
-    }
-}
-
-// MARK: - Cache Metadata (Moved here to avoid isolation issues)
+// MARK: - Helper Types
+// Hierhin verschoben aus BookRepository um Konflikte zu vermeiden
 struct CacheMetadata: Codable, Sendable {
     let timestamp: Date
 }
 
-// MARK: - AudioTrack Model
+enum TimestampConverter {
+    static func dateFromServer(_ timestamp: TimeInterval) -> Date { Date(timeIntervalSince1970: timestamp / 1000) }
+    static func serverTimestamp(from date: Date) -> TimeInterval { date.timeIntervalSince1970 * 1000 }
+    static var currentServerTimestamp: TimeInterval { serverTimestamp(from: Date()) }
+}
+
+// MARK: - Core Models
+// Alle explizit Sendable und Codable
+
 struct AudioTrack: Codable, Sendable, Hashable {
     let index: Int
     let startOffset: Double
@@ -45,18 +39,15 @@ struct AudioTrack: Codable, Sendable, Hashable {
     }
 }
 
-// MARK: - AudioInfo Model
 struct AudioInfo: Codable, Sendable {
     let audioTrackCount: Int
     let downloadDate: Date
-    
     init(audioTrackCount: Int, downloadDate: Date = Date()) {
         self.audioTrackCount = audioTrackCount
         self.downloadDate = downloadDate
     }
 }
 
-// MARK: - Chapter Model
 struct Chapter: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let title: String
@@ -74,17 +65,12 @@ struct Chapter: Codable, Identifiable, Hashable, Sendable {
         self.episodeId = episodeId
     }
     
-    enum CodingKeys: String, CodingKey {
-        case id, title, start, end, libraryItemId, episodeId
-    }
+    enum CodingKeys: String, CodingKey { case id, title, start, end, libraryItemId, episodeId }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let intId = try? container.decode(Int.self, forKey: .id) {
-            self.id = String(intId)
-        } else {
-            self.id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
-        }
+        if let intId = try? container.decode(Int.self, forKey: .id) { self.id = String(intId) }
+        else { self.id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString }
         self.title = (try? container.decode(String.self, forKey: .title)) ?? "Untitled"
         self.start = try? container.decode(Double.self, forKey: .start)
         self.end = try? container.decode(Double.self, forKey: .end)
@@ -93,13 +79,12 @@ struct Chapter: Codable, Identifiable, Hashable, Sendable {
     }
     
     func contains(time: Double) -> Bool {
-        let start = start ?? 0
-        let end = end ?? .greatestFiniteMagnitude
-        return time >= start && time < end
+        let s = start ?? 0
+        let e = end ?? .greatestFiniteMagnitude
+        return time >= s && time < e
     }
 }
 
-// MARK: - Metadata Model
 struct Metadata: Codable, Hashable, Sendable {
     let title: String
     let author: String?
@@ -110,13 +95,9 @@ struct Metadata: Codable, Hashable, Sendable {
     let narrator: String?
     let publisher: String?
     
+    struct Author: Codable, Sendable { let name: String }
     enum CodingKeys: String, CodingKey {
-        case title, description, isbn, genres, publishedYear, narrator, publisher
-        case authorName, authors
-    }
-    
-    struct Author: Codable, Sendable {
-        let name: String
+        case title, description, isbn, genres, publishedYear, narrator, publisher, authorName, authors
     }
     
     init(title: String, author: String? = nil, description: String? = nil, isbn: String? = nil, genres: [String]? = nil, publishedYear: String? = nil, narrator: String? = nil, publisher: String? = nil) {
@@ -140,15 +121,12 @@ struct Metadata: Codable, Hashable, Sendable {
         narrator = try container.decodeIfPresent(String.self, forKey: .narrator)
         publisher = try container.decodeIfPresent(String.self, forKey: .publisher)
         
-        if let authorName = try container.decodeIfPresent(String.self, forKey: .authorName) {
-            author = authorName
-        } else if let authorObjects = try container.decodeIfPresent([Author].self, forKey: .authors) {
-            author = authorObjects.first?.name
-        } else {
-            author = nil
-        }
+        if let authorName = try container.decodeIfPresent(String.self, forKey: .authorName) { author = authorName }
+        else if let authorObjects = try container.decodeIfPresent([Author].self, forKey: .authors) { author = authorObjects.first?.name }
+        else { author = nil }
     }
     
+    // WICHTIG: Explizites Encode verhindert Compiler-Verwirrung
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(title, forKey: .title)
@@ -162,7 +140,6 @@ struct Metadata: Codable, Hashable, Sendable {
     }
 }
 
-// MARK: - Media Model
 struct Media: Codable, Hashable, Sendable {
     let metadata: Metadata
     let chapters: [Chapter]?
