@@ -17,6 +17,7 @@ enum DependencyError: Error {
     }
 }
 
+// Annotated with @MainActor because it holds ViewModels and Managers that are @MainActor
 @MainActor
 final class DependencyContainer: ObservableObject {
 
@@ -50,7 +51,7 @@ final class DependencyContainer: ObservableObject {
     lazy var playbackRepository: PlaybackRepository = PlaybackRepository.shared
     lazy var bookmarkRepository: BookmarkRepository = BookmarkRepository.shared
 
-    // MARK: - ViewModels (Lazy mit Safety)
+    // MARK: - ViewModels (Lazy with Safety)
     private var _homeViewModel: HomeViewModel?
     private var _libraryViewModel: LibraryViewModel?
     private var _seriesViewModel: SeriesViewModel?
@@ -66,7 +67,7 @@ final class DependencyContainer: ObservableObject {
     lazy var authService: AuthenticationService = AuthenticationService()
     lazy var serverValidator: ServerConfigValidator = ServerConfigValidator()
 
-    // MARK: - 🆕 Bookmark Enrichment Cache
+    // MARK: - Bookmark Enrichment Cache
     private var bookLookupCache: [String: Book] = [:]
     private var cancellables = Set<AnyCancellable>()
     
@@ -75,10 +76,10 @@ final class DependencyContainer: ObservableObject {
         _apiClient = AudiobookshelfClient(baseURL: baseURL, authToken: token)
         isConfigured = true
         
-        // Reset ViewModels bei neuer Konfiguration
+        // Reset ViewModels on new configuration
         resetViewModels()
         
-        // 🆕 Configure Shared Repositories
+        // Configure Shared Repositories
         if let api = _apiClient {
             // PlaybackRepository
             playbackRepository.configure(api: api)
@@ -89,13 +90,13 @@ final class DependencyContainer: ObservableObject {
             AppLogger.general.debug("[Container] ✅ BookmarkRepository configured")
         }
         
-        // 🆕 Setup bookmark enrichment observers
+        // Setup bookmark enrichment observers
         setupBookmarkEnrichment()
         
         AppLogger.general.info("[Container] API configured for \(baseURL)")
     }
     
-    // MARK: - 🆕 Initialize Shared Repositories (call after API config)
+    // MARK: - Initialize Shared Repositories (call after API config)
     func initializeSharedRepositories(isOnline: Bool) async {
         // Set online status
         playbackRepository.setOnlineStatus(isOnline)
@@ -112,7 +113,7 @@ final class DependencyContainer: ObservableObject {
         }
     }
     
-    // MARK: - 🆕 Bookmark Enrichment Setup
+    // MARK: - Bookmark Enrichment Setup
     private func setupBookmarkEnrichment() {
         // Clear existing subscriptions
         cancellables.removeAll()
@@ -145,7 +146,7 @@ final class DependencyContainer: ObservableObject {
         NotificationCenter.default.post(name: .init("BookmarkEnrichmentUpdated"), object: nil)
     }
     
-    // MARK: - 🆕 Enriched Bookmarks API
+    // MARK: - Enriched Bookmarks API
     
     /// Get all enriched bookmarks (flat list)
     func getAllEnrichedBookmarks(sortedBy sort: BookmarkSortOption = .dateNewest) -> [EnrichedBookmark] {
@@ -468,7 +469,7 @@ final class DependencyContainer: ObservableObject {
         _seriesViewModel = nil
         _authorsViewModel = nil
         _downloadsViewModel = nil
-        // SettingsViewModel wird nicht resettet
+        // SettingsViewModel is not reset
     }
 
     @MainActor
@@ -478,7 +479,6 @@ final class DependencyContainer: ObservableObject {
         // Clear caches
         bookRepository.clearCache()
         libraryRepository.clearCache()
-        // playbackRepository.clearCache() // ❌ Has no clearCache method
         bookmarkRepository.clearCache()
         
         resetRepositories()
@@ -492,51 +492,5 @@ final class DependencyContainer: ObservableObject {
         _apiClient = nil
 
         AppLogger.general.info("[Container] All repositories and ViewModels reset")
-    }
-}
-
-// MARK: - Placeholder Extensions
-extension BookRepository {
-    static var placeholder: BookRepository {
-        let dummyClient = AudiobookshelfClient(baseURL: "", authToken: "")
-        return BookRepository(api: dummyClient)
-    }
-}
-
-extension LibraryRepository {
-    static var placeholder: LibraryRepository {
-        let dummyClient = AudiobookshelfClient(baseURL: "", authToken: "")
-        return LibraryRepository(api: dummyClient, settingsRepository: SettingsRepository())
-    }
-}
-
-// MARK: - ViewModel Placeholders
-extension HomeViewModel {
-    static var placeholder: HomeViewModel {
-        fatalError("HomeViewModel accessed before API configuration. Check your setup flow.")
-    }
-}
-
-extension LibraryViewModel {
-    static var placeholder: LibraryViewModel {
-        fatalError("LibraryViewModel accessed before API configuration. Check your setup flow.")
-    }
-}
-
-extension SeriesViewModel {
-    static var placeholder: SeriesViewModel {
-        fatalError("SeriesViewModel accessed before API configuration. Check your setup flow.")
-    }
-}
-
-extension AuthorsViewModel {
-    static var placeholder: AuthorsViewModel {
-        fatalError("AuthorsViewModel accessed before API configuration. Check your setup flow.")
-    }
-}
-
-extension DownloadsViewModel {
-    static var placeholder: DownloadsViewModel {
-        fatalError("DownloadsViewModel accessed before API configuration. Check your setup flow.")
     }
 }

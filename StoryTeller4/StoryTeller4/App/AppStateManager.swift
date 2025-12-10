@@ -1,9 +1,8 @@
-
 import SwiftUI
+import Combine
 
 // MARK: - App Loading States
-// Represents the high-level loading and authentication phases of the app lifecycle.
-enum AppLoadingState: Equatable {
+enum AppLoadingState: Equatable, Sendable {
     case initial
     case loadingCredentials
     case noCredentialsSaved
@@ -15,14 +14,12 @@ enum AppLoadingState: Equatable {
 }
 
 // MARK: - Connection Issue Types
-// Describes different types of network or authentication issues.
-enum ConnectionIssueType: Equatable {
+enum ConnectionIssueType: Equatable, Sendable {
     case noInternet
     case serverUnreachable
     case authInvalid
     case serverError
 
-    // User-facing short message.
     var userMessage: String {
         switch self {
         case .noInternet: return "No internet connection"
@@ -32,7 +29,6 @@ enum ConnectionIssueType: Equatable {
         }
     }
 
-    // Additional details for UI.
     var detailMessage: String {
         switch self {
         case .noInternet: return "Please check your network settings and try again."
@@ -42,7 +38,6 @@ enum ConnectionIssueType: Equatable {
         }
     }
 
-    // Defines whether the error can be retried.
     var canRetry: Bool {
         switch self {
         case .noInternet, .serverUnreachable, .serverError: return true
@@ -50,7 +45,6 @@ enum ConnectionIssueType: Equatable {
         }
     }
 
-    // System image used for visual feedback.
     var systemImage: String {
         switch self {
         case .noInternet: return "wifi.slash"
@@ -59,7 +53,6 @@ enum ConnectionIssueType: Equatable {
         }
     }
 
-    // Icon color displayed in alerts.
     var iconColor: Color {
         switch self {
         case .noInternet: return .orange
@@ -71,7 +64,7 @@ enum ConnectionIssueType: Equatable {
 
 
 // MARK: - App State Manager
-// Central observable manager for app lifecycle, networking state, and UI flags.
+@MainActor
 class AppStateManager: ObservableObject {
     static let shared = AppStateManager()
 
@@ -100,7 +93,6 @@ class AppStateManager: ObservableObject {
 
         checkFirstLaunch()
         setupNetworkMonitoring()
-        
     }
 
     // MARK: - Network Monitoring
@@ -109,7 +101,6 @@ class AppStateManager: ObservableObject {
             Task { @MainActor in
                 guard let self = self else { return }
 
-                // Ignore duplicates
                 if status == self.lastStatus { return }
                 self.lastStatus = status
 
@@ -129,31 +120,28 @@ class AppStateManager: ObservableObject {
                 }
             }
         }
+        
         networkMonitor.startMonitoring()
         AppLogger.general.info("[AppState] Network monitoring started")
     }
 
-    // MARK: - Self-Healing NWPathMonitor
+    // MARK: - Self-Healing
     private func verifyConnectionHealth() {
         Task { @MainActor in
-                        
             guard networkMonitor.currentStatus == .online else { return }
 
-            // Short delay to fetch NWPathMonitor-Bug
-            try? await Task.sleep(nanoseconds: 5_000_000_000) //  Sekunden
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
 
-            // Force Refresh
             networkMonitor.forceRefresh()
-            
-            // Prüfe Server erneut
             await checkServerReachability()
             
-            AppLogger.general.debug("[AppState] Connection health verified after self-heal")        }
+            AppLogger.general.debug("[AppState] Connection health verified after self-heal")
+        }
     }
 
     // MARK: - Server Reachability
     func checkServerReachability() async {
-        guard let api = await DependencyContainer.shared.apiClient else { return }
+        guard let api = DependencyContainer.shared.apiClient else { return }
 
         let monitorStatus = networkMonitor.currentStatus
 
@@ -162,10 +150,8 @@ class AppStateManager: ObservableObject {
             token: api.authToken
         )
 
-        await MainActor.run {
-            self.isDeviceOnline = monitorStatus == .online
-            self.isServerReachable = health != .unavailable
-        }
+        self.isDeviceOnline = monitorStatus == .online
+        self.isServerReachable = health != .unavailable
     }
     
     func clearConnectionIssue() {
@@ -186,7 +172,6 @@ class AppStateManager: ObservableObject {
 
 #if DEBUG
 extension AppStateManager {
-    @MainActor
     func debugToggleDeviceOnline() {
         isDeviceOnline.toggle()
         if !isDeviceOnline { isServerReachable = false }

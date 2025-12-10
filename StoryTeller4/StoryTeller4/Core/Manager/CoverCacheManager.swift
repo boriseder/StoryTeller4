@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 enum MemoryPressureLevel {
     case warning    // Standard iOS memory warning

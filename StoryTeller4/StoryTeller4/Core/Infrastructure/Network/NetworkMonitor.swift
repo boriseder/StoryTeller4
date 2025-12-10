@@ -24,7 +24,7 @@ protocol NetworkMonitoring {
     func forceRefresh()
 }
 
-final class NetworkMonitor: NetworkMonitoring {
+actor NetworkMonitor: NetworkMonitoring {
     
     private var monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.storyteller3.networkmonitor")

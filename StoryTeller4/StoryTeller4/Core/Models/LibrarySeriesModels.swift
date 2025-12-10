@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Series Model (Consolidated)
 /// Unified series model - handles both collapsed series and full series data
-struct Series: Codable, Identifiable, Equatable, Hashable {
+struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
     let nameIgnorePrefix: String?
@@ -105,7 +105,7 @@ struct Series: Codable, Identifiable, Equatable, Hashable {
 }
 
 // MARK: - Library Models
-struct Library: Codable, Identifiable, Equatable, Hashable {
+struct Library: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
     let mediaType: String?
@@ -153,7 +153,7 @@ struct LibraryItem: Codable, Identifiable, Sendable, Hashable {
 }
 
 // MARK: - Book Model
-struct Book: Identifiable, Codable, Equatable, Hashable {
+struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     let id: String
     let title: String
     let author: String?

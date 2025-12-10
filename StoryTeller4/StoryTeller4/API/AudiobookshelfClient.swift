@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 class AudiobookshelfClient {
     let connection: ConnectionServiceProtocol
@@ -11,7 +12,7 @@ class AudiobookshelfClient {
     let bookmarks: BookmarkServiceProtocol
     let converter: BookConverterProtocol
 
-    private let apiConfig: APIConfig    // Dirty hack #1
+    private let apiConfig: APIConfig
 
     init(
         baseURL: String,
@@ -32,12 +33,9 @@ class AudiobookshelfClient {
         self.bookmarks = DefaultBookmarkService(config: config, networkService: networkService)
         self.converter = converter
         
-        
-        self.apiConfig = config  // speichern
-        
+        self.apiConfig = config
     }
     
     var baseURLString: String { apiConfig.baseURL }
     var authToken: String { apiConfig.authToken }
-
 }

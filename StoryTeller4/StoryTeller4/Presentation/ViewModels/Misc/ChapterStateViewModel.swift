@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 // MARK: - Chapter State View Model
 struct ChapterStateViewModel: Identifiable, Equatable {

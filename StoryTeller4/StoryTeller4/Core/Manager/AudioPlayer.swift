@@ -3,6 +3,8 @@ import AVFoundation
 import Combine
 import UIKit
 
+// MARK: - Audio Player
+@MainActor
 class AudioPlayer: NSObject, ObservableObject {
     
     // MARK: - Published Properties
@@ -15,7 +17,7 @@ class AudioPlayer: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published var playbackRate: Float = 1.0
     
-    // MARK: - Dependencies (Injected Services)
+    // MARK: - Dependencies
     private let avPlayerService: AVPlayerService
     private let sessionService: PlaybackSessionService
     private var audioFileService: AudioFileService
@@ -27,8 +29,6 @@ class AudioPlayer: NSObject, ObservableObject {
     private var authToken: String = ""
     private var isOfflineMode: Bool = false
     private var targetSeekTime: Double?
-    
-    // MARK: - Backward Compatibility
     private var downloadManager: DownloadManager?
     
     var downloadManagerReference: DownloadManager? {
@@ -40,7 +40,9 @@ class AudioPlayer: NSObject, ObservableObject {
     private var hasAddedKVOObservers = false
     private var timeObserver: Any?
     private var observers: [NSObjectProtocol] = []
-    private static var observerContext = 0
+    
+    // FIX: Context must be accessible from nonisolated context
+    private nonisolated(unsafe) static var observerContext = 0
     
     // MARK: - Computed Properties
     var currentChapter: Chapter? {
@@ -49,7 +51,6 @@ class AudioPlayer: NSObject, ObservableObject {
     }
     
     // MARK: - Initialization
-    
     override init() {
         self.avPlayerService = DefaultAVPlayerService()
         self.sessionService = DefaultPlaybackSessionService()
@@ -58,7 +59,6 @@ class AudioPlayer: NSObject, ObservableObject {
         self.preloader = AudioTrackPreloader()
         
         super.init()
-        
         setupPersistence()
         setupRemoteCommands()
         setupInterruptionHandling()
@@ -78,15 +78,12 @@ class AudioPlayer: NSObject, ObservableObject {
         self.preloader = preloader
         
         super.init()
-        
         setupPersistence()
         setupRemoteCommands()
         setupInterruptionHandling()
     }
     
     // MARK: Computed properties
-    
-    /// Absolute Zeit im gesamten Buch (für UI-Anzeige)
     var absoluteCurrentTime: Double {
         guard let chapter = currentChapter else { return currentTime }
         let chapterStart = chapter.start ?? 0
@@ -94,26 +91,20 @@ class AudioPlayer: NSObject, ObservableObject {
         return chapterStart + relativeTime
     }
 
-    /// Relative Zeit im aktuellen Kapitel
     var relativeCurrentTime: Double {
         return avPlayerService.currentTime
     }
 
-    /// Dauer des aktuellen Kapitels
     var chapterDuration: Double {
-        return duration  // Dies ist bereits die Kapitel-Duration
+        return duration
     }
 
-    /// Gesamtdauer des Buchs
     var totalBookDuration: Double {
         guard let book = book else { return duration }
-        // Berechne aus letztem Kapitel
         guard let lastChapter = book.chapters.last else { return duration }
         return lastChapter.end ?? duration
     }
 
-    
-    
     // MARK: - Configuration
     func configure(baseURL: String, authToken: String, downloadManager: DownloadManager? = nil) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -126,8 +117,6 @@ class AudioPlayer: NSObject, ObservableObject {
     }
     
     // MARK: - Book Loading
-
-    @MainActor
     func load(
         book: Book,
         isOffline: Bool = false,
@@ -137,34 +126,21 @@ class AudioPlayer: NSObject, ObservableObject {
         self.book = book
         self.isOfflineMode = isOffline
         
-        preloader.clearAll()
+        await preloader.clearAll()
         
         if restoreState {
-            // Load states with improved merge logic
-            // In AudioPlayer.load() Methode
             if let state = await PlaybackRepository.shared.loadStateForBook(book.id, book: book) {
                 self.currentChapterIndex = min(state.chapterIndex, book.chapters.count - 1)
-                
-                // ✅ FIX: Konvertiere absolute Zeit zu relativer Kapitelzeit
                 if let chapter = book.chapters[safe: self.currentChapterIndex] {
                     let chapterStart = chapter.start ?? 0
                     self.targetSeekTime = max(0, state.currentTime - chapterStart)
-                    
-                    AppLogger.general.debug("""
-                        [AudioPlayer] Restored: Chapter \(self.currentChapterIndex), \
-                        Absolute: \(state.currentTime)s, \
-                        Chapter starts at: \(chapterStart)s, \
-                        Seeking to: \(self.targetSeekTime ?? 0)s within chapter
-                    """)
                 } else {
                     self.targetSeekTime = nil
                 }
             }
         } else {
-            // State wird ignoriert (z.B. bei manuellem Neustart)
             self.currentChapterIndex = 0
             self.targetSeekTime = nil
-            AppLogger.general.debug("[AudioPlayer] ⏮️ Starting from beginning (restoreState=false)")
         }
         
         loadChapter(shouldResumePlayback: autoPlay)
@@ -178,27 +154,25 @@ class AudioPlayer: NSObject, ObservableObject {
             return
         }
         
-        AppLogger.general.debug("[AudioPlayer] Loading chapter: \(chapter.title)")
-        
-        if let preloadedItem = preloader.getPreloadedItem(for: currentChapterIndex) {
-            AppLogger.general.debug("[AudioPlayer] Using preloaded item")
-            let chapterDuration = (chapter.end ?? 0) - (chapter.start ?? 0)
-            setupPlayer(with: preloadedItem, duration: chapterDuration, shouldResumePlayback: shouldResumePlayback)
-            startPreloadingNextChapter()
-            return
-        }
-        
-        isLoading = true
-        errorMessage = nil
-        
-        if isOfflineMode {
-            loadOfflineChapter(chapter, shouldResumePlayback: shouldResumePlayback)
-        } else {
-            loadOnlineChapter(chapter, shouldResumePlayback: shouldResumePlayback)
+        Task {
+            if let preloadedItem = await preloader.getPreloadedItem(for: currentChapterIndex) {
+                let chapterDuration = (chapter.end ?? 0) - (chapter.start ?? 0)
+                setupPlayer(with: preloadedItem, duration: chapterDuration, shouldResumePlayback: shouldResumePlayback)
+                startPreloadingNextChapter()
+                return
+            }
+            
+            isLoading = true
+            errorMessage = nil
+            
+            if isOfflineMode {
+                loadOfflineChapter(chapter, shouldResumePlayback: shouldResumePlayback)
+            } else {
+                loadOnlineChapter(chapter, shouldResumePlayback: shouldResumePlayback)
+            }
         }
     }
     
-    // MARK: - Online Chapter Loading
     private func loadOnlineChapter(_ chapter: Chapter, shouldResumePlayback: Bool) {
         Task {
             do {
@@ -216,21 +190,13 @@ class AudioPlayer: NSObject, ObservableObject {
                 await MainActor.run {
                     self.isLoading = false
                     self.errorMessage = error.localizedDescription
-                    AppLogger.general.debug("[AudioPlayer] Failed to create session: \(error)")
                 }
             }
         }
     }
  
-    // MARK: - Chapter Loading (Internal for Extensions)
-
-    /// Load a chapter with optional seek time (for internal use and extensions)
     internal func loadChapter(at index: Int, seekTo time: Double?, shouldResume: Bool = true) {
-        guard let book = book, index >= 0 && index < book.chapters.count else {
-            AppLogger.general.debug("[AudioPlayer] Invalid chapter index: \(index)")
-            return
-        }
-        
+        guard let book = book, index >= 0 && index < book.chapters.count else { return }
         currentChapterIndex = index
         targetSeekTime = time
         loadChapter(shouldResumePlayback: shouldResume)
@@ -256,7 +222,6 @@ class AudioPlayer: NSObject, ObservableObject {
         setupPlayer(with: playerItem, duration: audioTrack.duration, shouldResumePlayback: shouldResumePlayback)
     }
     
-    // MARK: - Offline Chapter Loading
     private func loadOfflineChapter(_ chapter: Chapter, shouldResumePlayback: Bool) {
         guard let book = book else {
             isLoading = false
@@ -279,7 +244,6 @@ class AudioPlayer: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Player Setup
     private func setupPlayer(with item: AVPlayerItem, duration: Double, shouldResumePlayback: Bool) {
         cleanupPlayer()
         
@@ -288,7 +252,6 @@ class AudioPlayer: NSObject, ObservableObject {
         addTimeObserver()
         
         self.duration = duration
-        
         updateNowPlaying()
         startPreloadingNextChapter()
         
@@ -308,7 +271,6 @@ class AudioPlayer: NSObject, ObservableObject {
         avPlayerService.playbackRate = playbackRate
         isPlaying = true
         updateNowPlaying()
-        AppLogger.general.debug("[AudioPlayer] Playing at rate: \(playbackRate)x")
     }
     
     func pause() {
@@ -316,15 +278,10 @@ class AudioPlayer: NSObject, ObservableObject {
         isPlaying = false
         updateNowPlaying()
         saveCurrentPlaybackState()
-        AppLogger.general.debug("[AudioPlayer] Paused")
     }
     
     func setCurrentChapter(index: Int) {
-        guard let book = book, index >= 0 && index < book.chapters.count else {
-            AppLogger.general.debug("[AudioPlayer] Invalid chapter index: \(index)")
-            return
-        }
-        
+        guard let book = book, index >= 0 && index < book.chapters.count else { return }
         currentChapterIndex = index
         targetSeekTime = 0
         loadChapter(shouldResumePlayback: isPlaying)
@@ -332,60 +289,40 @@ class AudioPlayer: NSObject, ObservableObject {
     
     func nextChapter() {
         guard let book = book, currentChapterIndex + 1 < book.chapters.count else {
-            AppLogger.general.debug("[AudioPlayer] No next chapter available")
             pause()
             return
         }
-        
-        AppLogger.general.debug("[AudioPlayer] Moving to next chapter: \(currentChapterIndex + 1)")
         setCurrentChapter(index: currentChapterIndex + 1)
     }
     
     func previousChapter() {
-        guard currentChapterIndex > 0 else {
-            AppLogger.general.debug("[AudioPlayer] Already at first chapter")
-            return
-        }
-        
-        AppLogger.general.debug("[AudioPlayer] Moving to previous chapter: \(currentChapterIndex - 1)")
+        guard currentChapterIndex > 0 else { return }
         setCurrentChapter(index: currentChapterIndex - 1)
     }
     
     func seek15SecondsBack() {
         let newTime = max(0, currentTime - 15)
-        AppLogger.general.debug("[AudioPlayer] Seeking back 15s: \(currentTime) -> \(newTime)")
         seek(to: newTime)
     }
     
     func seek15SecondsForward() {
         let newTime = min(duration, currentTime + 15)
-        AppLogger.general.debug("[AudioPlayer] Seeking forward 15s: \(currentTime) -> \(newTime)")
         seek(to: newTime)
     }
     
     func seek(to seconds: Double) {
-        // Diese Methode erhält bereits absolute Zeit vom Slider
-        // und muss sie in relative Kapitelzeit umwandeln
-        
         guard let chapter = currentChapter else { return }
         let chapterStart = chapter.start ?? 0
         let chapterDuration = (chapter.end ?? 0) - chapterStart
         
-        // Konvertiere absolute Zeit zu relativer Kapitelzeit
         let relativeSeekTime = seconds - chapterStart
+        guard relativeSeekTime >= 0 && relativeSeekTime <= chapterDuration else { return }
         
-        guard relativeSeekTime >= 0 && relativeSeekTime <= chapterDuration else {
-            AppLogger.general.debug("[AudioPlayer] Invalid seek time: \(seconds) (chapter range: \(chapterStart)-\(chapter.end ?? 0))")
-            return
-        }
-        
-        AppLogger.general.debug("[AudioPlayer] Seeking to absolute: \(seconds)s (relative in chapter: \(relativeSeekTime)s)")
         avPlayerService.seek(to: relativeSeekTime)
         
         if isPlaying {
             avPlayerService.playbackRate = playbackRate
         }
-        
         updateNowPlaying()
         saveCurrentPlaybackState()
     }
@@ -393,24 +330,16 @@ class AudioPlayer: NSObject, ObservableObject {
     func setPlaybackRate(_ rate: Double) {
         let floatRate = Float(rate)
         self.playbackRate = floatRate
-        
         if isPlaying {
             avPlayerService.playbackRate = floatRate
         }
-        
         updateNowPlaying()
-        AppLogger.general.debug("[AudioPlayer] Playback rate set to: \(rate)x")
     }
     
     func togglePlayPause() {
-        if isPlaying {
-            pause()
-        } else {
-            play()
-        }
+        if isPlaying { pause() } else { play() }
     }
     
-    // MARK: - Remote Commands Setup
     private func setupRemoteCommands() {
         mediaRemoteService.setupRemoteCommands(
             onPlay: { [weak self] in self?.play() },
@@ -424,7 +353,6 @@ class AudioPlayer: NSObject, ObservableObject {
         )
     }
     
-    // MARK: - Now Playing Info
     private func updateNowPlaying() {
         guard let book = book, let chapter = currentChapter else {
             mediaRemoteService.clearNowPlaying()
@@ -447,11 +375,9 @@ class AudioPlayer: NSObject, ObservableObject {
             playbackRate: isPlaying ? Double(playbackRate) : 0.0,
             artwork: artwork
         )
-        AppLogger.network.debug("Updating Now Playing: \(info)")
         mediaRemoteService.updateNowPlaying(info: info)
     }
     
-    // MARK: - Interruption Handling
     private func setupInterruptionHandling() {
         let observer = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
@@ -466,17 +392,13 @@ class AudioPlayer: NSObject, ObservableObject {
     @objc private func handleInterruption(notification: Notification) {
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-            return
-        }
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
         
         switch type {
         case .began:
             pause()
         case .ended:
-            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else {
-                return
-            }
+            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
             if options.contains(.shouldResume) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -488,66 +410,38 @@ class AudioPlayer: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Preloading
     private func startPreloadingNextChapter() {
         guard let book = book else { return }
-        
-        preloader.preloadNext(
-            chapterIndex: currentChapterIndex,
-            book: book,
-            isOffline: isOfflineMode,
-            baseURL: baseURL,
-            authToken: authToken,
-            downloadManager: downloadManager
-        ) { success in
-            if success {
-                AppLogger.general.debug("[AudioPlayer] Next chapter preloaded")
-            }
+        Task {
+            await preloader.preloadNext(
+                chapterIndex: currentChapterIndex,
+                book: book,
+                isOffline: isOfflineMode,
+                baseURL: baseURL,
+                authToken: authToken,
+                downloadManager: downloadManager
+            ) { _ in }
         }
     }
     
-    // MARK: - Time Observer
     private func addTimeObserver() {
         let interval = CMTime(seconds: 1, preferredTimescale: 1)
         timeObserver = avPlayerService.addTimeObserver(interval: interval, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             self.currentTime = self.avPlayerService.currentTime
-                        
-
-            // we only use relative time here
-            // Calculate absolute time: chapter start + + current position in chapter
-            /*
-             
-             let relativeTime = self.avPlayerService.currentTime
-
-            if let chapter = self.currentChapter {
-                let chapterStart = chapter.start ?? 0
-                self.currentTime = chapterStart + relativeTime  // Absolute Zeit für Speicherung
-            } else {
-                self.currentTime = relativeTime
-            }
-             */
-
-            
             
             if Int(self.currentTime) % 5 == 0 {
                 self.updateNowPlaying()
             }
-            
             if self.duration - self.currentTime <= 30 {
                 self.startPreloadingNextChapter()
             }
         }
     }
     
-    // MARK: - Player Item Observers
     private func setupPlayerItemObservers(_ playerItem: AVPlayerItem) {
         if let previousItem = currentObservedItem {
-            NotificationCenter.default.removeObserver(
-                self,
-                name: .AVPlayerItemDidPlayToEndTime,
-                object: previousItem
-            )
+            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: previousItem)
             if hasAddedKVOObservers {
                 previousItem.removeObserver(self, forKeyPath: "status", context: &AudioPlayer.observerContext)
                 previousItem.removeObserver(self, forKeyPath: "loadedTimeRanges", context: &AudioPlayer.observerContext)
@@ -558,13 +452,7 @@ class AudioPlayer: NSObject, ObservableObject {
         playerItem.addObserver(self, forKeyPath: "loadedTimeRanges", options: [.new], context: &AudioPlayer.observerContext)
         hasAddedKVOObservers = true
         
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerItemDidFinishPlaying),
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem
-        )
-        
+        NotificationCenter.default.addObserver(self, selector: #selector(playerItemDidFinishPlaying), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
         currentObservedItem = playerItem
     }
     
@@ -576,121 +464,76 @@ class AudioPlayer: NSObject, ObservableObject {
             }
             return
         }
-        
         DispatchQueue.main.async { [weak self] in
             self?.nextChapter()
         }
     }
     
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+    nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
         guard context == &AudioPlayer.observerContext else {
             super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
             return
         }
-        
-        guard let keyPath = keyPath, let playerItem = object as? AVPlayerItem else { return }
-        
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            switch keyPath {
-            case "status":
-                switch playerItem.status {
-                case .readyToPlay:
-                    self.errorMessage = nil
-                case .failed:
-                    let errorDescription = playerItem.error?.localizedDescription ?? "Unknown error"
-                    self.errorMessage = errorDescription
-                case .unknown:
-                    break
-                @unknown default:
-                    break
-                }
-            case "loadedTimeRanges":
-                break
-            default:
-                break
-            }
+        Task { @MainActor in
+            self.handleObservationChange(keyPath: keyPath, object: object)
         }
     }
     
-    // MARK: - Persistence
+    private func handleObservationChange(keyPath: String?, object: Any?) {
+        guard let keyPath = keyPath, let playerItem = object as? AVPlayerItem else { return }
+        switch keyPath {
+        case "status":
+            if playerItem.status == .failed {
+                self.errorMessage = playerItem.error?.localizedDescription ?? "Unknown error"
+            } else if playerItem.status == .readyToPlay {
+                self.errorMessage = nil
+            }
+        default: break
+        }
+    }
+    
     private func setupPersistence() {
-        let autoSaveObserver = NotificationCenter.default.addObserver(
-            forName: .playbackAutoSave,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        let autoSaveObserver = NotificationCenter.default.addObserver(forName: .playbackAutoSave, object: nil, queue: .main) { [weak self] _ in
             self?.saveCurrentPlaybackState()
         }
         observers.append(autoSaveObserver)
         
-        let backgroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        let backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             self?.saveCurrentPlaybackState()
         }
         observers.append(backgroundObserver)
     }
     
-    // In AudioPlayer.swift
-
     private func saveCurrentPlaybackState() {
-            
         guard let book = book, let chapter = currentChapter else { return }
-        
-        // Berechne absolute Zeit für Server-Sync
         let chapterStart = chapter.start ?? 0
-        let absoluteTime = chapterStart + currentTime  // currentTime ist jetzt relativ
+        let absoluteTime = chapterStart + currentTime
         
         let state = PlaybackState(
             libraryItemId: book.id,
-            currentTime: absoluteTime,  // absolute time for abs
-            duration: totalBookDuration,  // total duration
+            currentTime: absoluteTime,
+            duration: totalBookDuration,
             isFinished: isBookFinished(),
             lastUpdate: Date(),
-            chapterIndex: currentChapterIndex,
-            needsSync: false
+            chapterIndex: currentChapterIndex
         )
-
-        AppLogger.audio.debug("[AudioPlayer] Saving playback state: time=\(currentTime)s, chapter=\(currentChapterIndex), finished=\(state.isFinished)")
-        
-        // PlaybackRepository kümmert sich um:
-        // - Lokales Speichern
-        // - Online/Offline Detection
-        // - Sofortiges Server-Sync wenn online
-        // - Queuing für später wenn offline
         PlaybackRepository.shared.saveState(state)
     }
 
     private func isBookFinished() -> Bool {
         guard let book = book else { return false }
-        
-        // Buch ist "fertig" wenn:
-        // 1. Wir im letzten Kapitel sind UND
-        // 2. Wir > 95% durch sind (um Credits/Outro zu überspringen)
         let isLastChapter = currentChapterIndex >= book.chapters.count - 1
         let nearEnd = duration > 0 && (currentTime / duration) > 0.95
-        
         return isLastChapter && nearEnd
     }
     
-    // MARK: - Cleanup
     private func cleanupPlayer() {
         if let observer = timeObserver {
             avPlayerService.removeTimeObserver(observer)
             timeObserver = nil
         }
-        
         if let observedItem = currentObservedItem {
-            NotificationCenter.default.removeObserver(
-                self,
-                name: .AVPlayerItemDidPlayToEndTime,
-                object: observedItem
-            )
-            
+            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: observedItem)
             if hasAddedKVOObservers {
                 observedItem.removeObserver(self, forKeyPath: "status", context: &AudioPlayer.observerContext)
                 observedItem.removeObserver(self, forKeyPath: "loadedTimeRanges", context: &AudioPlayer.observerContext)
@@ -698,33 +541,19 @@ class AudioPlayer: NSObject, ObservableObject {
             }
         }
         currentObservedItem = nil
-        
         avPlayerService.cleanup()
     }
     
     deinit {
-        if let observer = timeObserver {
-            avPlayerService.removeTimeObserver(observer)
-            timeObserver = nil
-        }
-        
         NotificationCenter.default.removeObserver(self)
-        
         if let observedItem = currentObservedItem, hasAddedKVOObservers {
             observedItem.removeObserver(self, forKeyPath: "status", context: &AudioPlayer.observerContext)
             observedItem.removeObserver(self, forKeyPath: "loadedTimeRanges", context: &AudioPlayer.observerContext)
         }
-        
-        avPlayerService.cleanup()
-        preloader.clearAll()
-        
-        observers.forEach { observer in
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observers.removeAll()
-        
-        mediaRemoteService.clearNowPlaying()
-        
-        AppLogger.general.debug("[AudioPlayer] Deinitialized")
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
+}
+
+extension Notification.Name {
+    static let playbackAutoSave = Notification.Name("playbackAutoSave")
 }

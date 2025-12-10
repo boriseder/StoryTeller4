@@ -1,12 +1,9 @@
-//
-//  KeychainService.swift
-//  StoryTeller3
-//
-
 import Foundation
 import Security
 
-class KeychainService {
+// MARK: - Keychain Service
+// Final and Sendable because it is stateless (immutable configuration only)
+final class KeychainService: Sendable {
     static let shared = KeychainService()
     
     private let service = "com.storyteller3.audiobookshelf"
@@ -18,17 +15,14 @@ class KeychainService {
     func storePassword(_ password: String, for username: String) throws {
         let data = Data(password.utf8)
         
-        // Query for deletion - only identifying attributes
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: username
         ]
         
-        // Delete existing item first
         SecItemDelete(deleteQuery as CFDictionary)
         
-        // Query for addition - includes data and attributes
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -89,17 +83,14 @@ class KeychainService {
         let data = Data(token.utf8)
         let account = "\(username)_token"
         
-        // Query for deletion - only identifying attributes
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
         
-        // Delete existing token first
         SecItemDelete(deleteQuery as CFDictionary)
         
-        // Query for addition - includes data and attributes
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -175,7 +166,7 @@ class KeychainService {
 
 // MARK: - Keychain Errors
 
-enum KeychainError: LocalizedError {
+enum KeychainError: LocalizedError, Sendable { // Errors are DTOs essentially
     case storageError(OSStatus)
     case retrievalError(OSStatus)
     case deletionError(OSStatus)

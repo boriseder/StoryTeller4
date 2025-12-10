@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 @MainActor
 final class ThemeManager: ObservableObject {
@@ -47,14 +48,13 @@ final class ThemeManager: ObservableObject {
     }
 }
 
-enum UserBackgroundStyle: String, CaseIterable {
+enum UserBackgroundStyle: String, CaseIterable, Sendable {
     case dynamic
     case light
     case dark
-    
 }
 
-enum UserAccentColor: String, CaseIterable, Identifiable {
+enum UserAccentColor: String, CaseIterable, Identifiable, Sendable {
     case red, orange, green, blue, purple, pink
     
     var id: String { rawValue }

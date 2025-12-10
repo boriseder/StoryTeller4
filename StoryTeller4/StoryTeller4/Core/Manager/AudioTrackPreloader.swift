@@ -2,12 +2,13 @@ import Foundation
 import AVFoundation
 
 // MARK: - Audio Track Preloader
-class AudioTrackPreloader {
+// Converted to an actor to ensure thread-safety without manual queues
+actor AudioTrackPreloader {
     
     // MARK: - Properties
     private var preloadedItems: [Int: AVPlayerItem] = [:]
     private var preloadedAssets: [Int: AVURLAsset] = [:]
-    private let queue = DispatchQueue(label: "com.storyteller.preload", qos: .utility)
+    // Removed dispatch queue, actor handles isolation
     private var currentPreloadTask: Task<Void, Never>?
     
     // MARK: - Preload Next Chapter
@@ -17,7 +18,7 @@ class AudioTrackPreloader {
         isOffline: Bool,
         baseURL: String,
         authToken: String,
-        downloadManager: DownloadManager?,
+        downloadManager: DownloadManager?, // DownloadManager is MainActor
         completion: ((Bool) -> Void)? = nil
     ) {
         let nextIndex = chapterIndex + 1
@@ -54,7 +55,8 @@ class AudioTrackPreloader {
                 )
             }
             
-            completion?(self.preloadedItems[nextIndex] != nil)
+            let success = await self.preloadedItems[nextIndex] != nil
+            completion?(success)
         }
     }
     
@@ -65,7 +67,8 @@ class AudioTrackPreloader {
         chapter: Chapter,
         downloadManager: DownloadManager?
     ) async {
-        guard let localURL = downloadManager?.getLocalAudioURL(
+        // Accessing DownloadManager (MainActor) requires await
+        guard let localURL = await downloadManager?.getLocalAudioURL(
             for: bookId,
             chapterIndex: chapterIndex
         ) else {
@@ -73,6 +76,7 @@ class AudioTrackPreloader {
             return
         }
         
+        // File manager operations are safe on background threads usually, but best done non-blocking
         guard FileManager.default.fileExists(atPath: localURL.path) else {
             AppLogger.general.debug("[Preloader] Local file does not exist: \(localURL.path)")
             return
@@ -93,12 +97,11 @@ class AudioTrackPreloader {
             let duration = try await asset.load(.duration)
             AppLogger.general.debug("[Preloader] Asset loaded, duration: \(CMTimeGetSeconds(duration))s")
             
-            await MainActor.run {
-                let playerItem = AVPlayerItem(asset: asset)
-                self.preloadedItems[chapterIndex] = playerItem
-                self.preloadedAssets[chapterIndex] = asset
-                AppLogger.general.debug("[Preloader] Successfully preloaded offline chapter \(chapterIndex)")
-            }
+            // Actors protect internal state automatically
+            let playerItem = AVPlayerItem(asset: asset)
+            self.preloadedItems[chapterIndex] = playerItem
+            self.preloadedAssets[chapterIndex] = asset
+            AppLogger.general.debug("[Preloader] Successfully preloaded offline chapter \(chapterIndex)")
             
         } catch {
             AppLogger.general.debug("[Preloader] Failed to preload offline chapter \(chapterIndex): \(error)")
@@ -140,7 +143,7 @@ class AudioTrackPreloader {
                 return
             }
             
-            let fullURL = "\(baseURL)\(audioTrack.contentUrl)"
+            let fullURL = "\(baseURL)\(audioTrack.contentUrl ?? "")" // Unwrap optional safely
             
             guard let audioURL = URL(string: fullURL) else {
                 AppLogger.general.debug("[Preloader] Invalid audio URL: \(fullURL)")
@@ -156,13 +159,23 @@ class AudioTrackPreloader {
                 return
             }
             
-            await MainActor.run {
-                let playerItem = AVPlayerItem(asset: asset)
-                let chapterIndex = session.audioTracks.firstIndex(where: { $0.contentUrl == audioTrack.contentUrl }) ?? 0
-                self.preloadedItems[chapterIndex] = playerItem
-                self.preloadedAssets[chapterIndex] = asset
-                AppLogger.general.debug("[Preloader] Successfully preloaded online chapter")
-            }
+            // Actor state modification
+            let playerItem = AVPlayerItem(asset: asset)
+            // Need to find chapter index logic?
+            // In original code: let chapterIndex = session.audioTracks.firstIndex...
+            // But we passed chapterIndex to the preload function, typically we want to store it under that index.
+            // However, the original code tried to derive it again.
+            // Let's assume we store it under the index of the next chapter we are preloading.
+            // But for online tracks which might be one-to-one or single file, logic might vary.
+            // Reusing original logic for index finding:
+            let foundIndex = session.audioTracks.firstIndex(where: { $0.contentUrl == audioTrack.contentUrl }) ?? 0
+            // NOTE: This logic seems specific to how tracks map to chapters.
+            // If we are preloading "next chapter", we should probably use that index.
+            // But sticking to original logic to minimize regression risk:
+            
+            self.preloadedItems[foundIndex] = playerItem
+            self.preloadedAssets[foundIndex] = asset
+            AppLogger.general.debug("[Preloader] Successfully preloaded online chapter")
             
         } catch {
             AppLogger.general.debug("[Preloader] Failed to preload online chapter: \(error)")
@@ -194,7 +207,8 @@ class AudioTrackPreloader {
     }
     
     // MARK: - Create Authenticated Asset
-    private func createAuthenticatedAsset(url: URL, authToken: String) -> AVURLAsset {
+    // Non-isolated helper as it doesn't touch state
+    nonisolated private func createAuthenticatedAsset(url: URL, authToken: String) -> AVURLAsset {
         let headers = [
             "Authorization": "Bearer \(authToken)",
             "User-Agent": "AudioBook Client/1.0.0"
@@ -222,11 +236,9 @@ class AudioTrackPreloader {
     
     // MARK: - Clear All Preloaded Items
     func clearAll() {
-        queue.sync {
-            preloadedItems.removeAll()
-            preloadedAssets.removeAll()
-            AppLogger.general.debug("[Preloader] Cleared all preloaded items")
-        }
+        preloadedItems.removeAll()
+        preloadedAssets.removeAll()
+        AppLogger.general.debug("[Preloader] Cleared all preloaded items")
     }
     
     // MARK: - Cancel Current Preload
@@ -237,7 +249,7 @@ class AudioTrackPreloader {
     }
     
     deinit {
-        cancelCurrentPreload()
-        clearAll()
+        // Can't easily call actor methods in deinit, but task cancellation is automatic if stored
+        currentPreloadTask?.cancel()
     }
 }

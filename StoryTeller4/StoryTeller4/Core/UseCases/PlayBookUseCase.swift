@@ -1,51 +1,22 @@
 import Foundation
 
-enum PlaybackMode: CustomStringConvertible {
-    case online
-    case offline
-    case unavailable
-    
-    var description: String {
-        switch self {
-        case .online: return "online"
-        case .offline: return "offline"
-        case .unavailable: return "unavailable"
-        }
-    }
-}
-
-enum PlayBookError: LocalizedError {
-    case notAvailableOffline(String)
-    case fetchFailed(Error)
-    case bookNotDownloadedOfflineOnly(String)  // NEW
-    
-    var errorDescription: String? {
-        switch self {
-        case .notAvailableOffline(let title):
-            return "'\(title)' is not available offline and no internet connection is available."
-        case .fetchFailed(let error):
-            return "Could not load book: \(error.localizedDescription)"
-        case .bookNotDownloadedOfflineOnly(let title):
-            return "'\(title)' needs to be downloaded for offline playback."
-        }
-    }
-}
-
-protocol PlayBookUseCaseProtocol {
-    func execute(
+protocol PlayBookUseCaseProtocol: Sendable {
+    // Arguments like AudioPlayer and AppStateManager are @MainActor types.
+    // The function itself should run on MainActor to interact with them synchronously.
+    @MainActor func execute(
         book: Book,
         api: AudiobookshelfClient,
         player: AudioPlayer,
         downloadManager: DownloadManager,
         appState: AppStateManager,
         restoreState: Bool,
-        autoPlay: Bool,
-
+        autoPlay: Bool
     ) async throws
 }
 
-class PlayBookUseCase: PlayBookUseCaseProtocol {
+final class PlayBookUseCase: PlayBookUseCaseProtocol, Sendable {
     
+    @MainActor
     func execute(
         book: Book,
         api: AudiobookshelfClient,
@@ -53,28 +24,19 @@ class PlayBookUseCase: PlayBookUseCaseProtocol {
         downloadManager: DownloadManager,
         appState: AppStateManager,
         restoreState: Bool = true,
-        autoPlay: Bool = false,
-
+        autoPlay: Bool = false
     ) async throws {
         
-        // 1. EARLY EXIT: Check playback feasibility FIRST
         let playbackMode = determinePlaybackMode(
             book: book,
             downloadManager: downloadManager,
             appState: appState
         )
         
-        // 2. FAIL FAST: Don't even try to load metadata if unavailable
         guard playbackMode != .unavailable else {
-            let isDownloaded = downloadManager.isBookDownloaded(book.id)
-            if isDownloaded {
-                // This should never happen, but handle gracefully
-                AppLogger.general.error("[PlayBookUseCase] Logic error: Book downloaded but marked unavailable")
-            }
             throw PlayBookError.notAvailableOffline(book.title)
         }
         
-        // 3. Load metadata (online or offline)
         let fullBook = try await loadBookMetadata(
             book: book,
             api: api,
@@ -82,48 +44,46 @@ class PlayBookUseCase: PlayBookUseCaseProtocol {
             isOffline: playbackMode == .offline
         )
         
-        // 4. Configure player
         player.configure(
             baseURL: api.baseURLString,
             authToken: api.authToken,
             downloadManager: downloadManager
         )
         
-        // 5. Load player with appropriate mode
-        let isOffline = playbackMode == .offline
         await player.load(
             book: fullBook,
-            isOffline: isOffline,
+            isOffline: playbackMode == .offline,
             restoreState: restoreState,
             autoPlay: autoPlay
         )
 
         AppLogger.general.debug("[PlayBookUseCase] Loaded: \(fullBook.title) (\(playbackMode))")
-        
     }
     
-    // REFACTOR: Separated concerns - metadata loading
+    // MARK: - Private Helpers (Stateless)
+    // These manipulate @MainActor types, so they inherit that isolation naturally when called from execute
+    
+    @MainActor
     private func loadBookMetadata(
         book: Book,
         api: AudiobookshelfClient,
         downloadManager: DownloadManager,
         isOffline: Bool
     ) async throws -> Book {
+        // Implementation remains same...
+        // MainActor isolation allows synchronous access to downloadManager.isBookDownloaded
         
         let isDownloaded = downloadManager.isBookDownloaded(book.id)
         
-        // Try local metadata first if downloaded
         if isDownloaded {
             do {
                 let localBook = try loadLocalMetadata(bookId: book.id, downloadManager: downloadManager)
-                AppLogger.general.debug("[PlayBookUseCase] Loaded from local metadata: \(localBook.title)")
                 return localBook
             } catch {
                 AppLogger.general.debug("[PlayBookUseCase] Local metadata failed, trying online")
             }
         }
         
-        // Fallback to online (or fail if offline-only mode)
         guard !isOffline else {
             throw PlayBookError.bookNotDownloadedOfflineOnly(book.title)
         }
@@ -131,12 +91,11 @@ class PlayBookUseCase: PlayBookUseCaseProtocol {
         do {
             return try await api.books.fetchBookDetails(bookId: book.id, retryCount: 3)
         } catch {
-            AppLogger.general.debug("[PlayBookUseCase] Online fetch failed: \(error)")
             throw PlayBookError.fetchFailed(error)
         }
     }
     
-    // CLEANER: More explicit playback mode logic
+    @MainActor
     private func determinePlaybackMode(
         book: Book,
         downloadManager: DownloadManager,
@@ -145,31 +104,19 @@ class PlayBookUseCase: PlayBookUseCaseProtocol {
         let isDownloaded = downloadManager.isBookDownloaded(book.id)
         let hasConnection = appState.isServerReachable
         
-        // Priority 1: Downloaded = Always offline mode
-        if isDownloaded {
-            return .offline
-        }
-        
-        // Priority 2: Network available = Stream online
-        if hasConnection {
-            return .online
-        }
-        
-        // Priority 3: No download, no network = Unavailable
+        if isDownloaded { return .offline }
+        if hasConnection { return .online }
         return .unavailable
-
     }
     
+    @MainActor
     private func loadLocalMetadata(bookId: String, downloadManager: DownloadManager) throws -> Book {
         let bookDir = downloadManager.bookDirectory(for: bookId)
         let metadataURL = bookDir.appendingPathComponent("metadata.json")
         
+        // FileManager is thread-safe
         guard FileManager.default.fileExists(atPath: metadataURL.path) else {
-            throw PlayBookError.fetchFailed(NSError(
-                domain: "PlayBookUseCase",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Local metadata not found"]
-            ))
+            throw NSError(domain: "PlayBookUseCase", code: -1, userInfo: [NSLocalizedDescriptionKey: "Local metadata not found"])
         }
         
         let data = try Data(contentsOf: metadataURL)

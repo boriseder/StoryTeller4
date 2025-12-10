@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - Author Model
-struct Author: Codable, Identifiable, Equatable, Hashable {
+struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String?

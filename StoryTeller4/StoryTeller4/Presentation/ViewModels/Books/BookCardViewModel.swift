@@ -3,6 +3,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 @MainActor
 class BookCardViewModel: ObservableObject {

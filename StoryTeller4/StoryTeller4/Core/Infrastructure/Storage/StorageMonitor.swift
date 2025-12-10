@@ -1,6 +1,7 @@
 import Foundation
 
-struct DeviceStorageInfo {
+// Make structs Sendable
+struct DeviceStorageInfo: Sendable {
     let totalSpace: Int64
     let availableSpace: Int64
     let usedSpace: Int64
@@ -37,7 +38,7 @@ struct DeviceStorageInfo {
     }
 }
 
-enum StorageWarningLevel {
+enum StorageWarningLevel: Sendable {
     case none
     case low
     case critical
@@ -51,7 +52,7 @@ enum StorageWarningLevel {
     }
 }
 
-protocol StorageMonitoring {
+protocol StorageMonitoring: Sendable {
     func getStorageInfo() -> DeviceStorageInfo
     func getWarningLevel() -> StorageWarningLevel
     func hasEnoughSpace(required: Int64) -> Bool
@@ -59,7 +60,8 @@ protocol StorageMonitoring {
     func formatBytes(_ bytes: Int64) -> String
 }
 
-class StorageMonitor: StorageMonitoring {
+// Final and Sendable because FileManager.default is thread-safe and stateless wrapper
+final class StorageMonitor: StorageMonitoring, Sendable {
     
     private let fileManager = FileManager.default
     
@@ -97,6 +99,8 @@ class StorageMonitor: StorageMonitoring {
     }
     
     func calculateDirectorySize(at url: URL) -> Int64 {
+        // Enumerator might perform IO, safe to call from any thread but blocking.
+        // In strict context, callers should wrap in Task if on MainActor.
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]

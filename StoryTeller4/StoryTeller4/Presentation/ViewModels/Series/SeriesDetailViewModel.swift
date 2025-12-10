@@ -1,5 +1,6 @@
 
 import SwiftUI
+import Combine
 
 @MainActor
 class SeriesDetailViewModel: ObservableObject {

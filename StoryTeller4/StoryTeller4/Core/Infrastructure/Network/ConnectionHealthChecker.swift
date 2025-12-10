@@ -1,17 +1,17 @@
 import Foundation
 
-enum ConnectionHealth {
+enum ConnectionHealth: Sendable {
     case healthy
     case degraded
     case unavailable
 }
 
-protocol ConnectionHealthChecking {
+protocol ConnectionHealthChecking: Sendable {
     func checkHealth(baseURL: String, token: String) async -> ConnectionHealth
     func ping(baseURL: String) async -> Bool
 }
 
-class ConnectionHealthChecker: ConnectionHealthChecking {
+final class ConnectionHealthChecker: ConnectionHealthChecking, Sendable {
     
     private let timeout: TimeInterval
     
