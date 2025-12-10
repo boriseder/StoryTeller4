@@ -3,45 +3,34 @@ import UserNotifications
 import Combine
 
 // MARK: - Sleep Timer Mode
-enum SleepTimerMode: Equatable, CustomStringConvertible {
+enum SleepTimerMode: Equatable, CustomStringConvertible, Sendable {
     case duration(minutes: Int)
     case endOfChapter
     case endOfBook
     
     var displayName: String {
         switch self {
-        case .duration(let minutes):
-            return "\(minutes) minutes"
-        case .endOfChapter:
-            return "End of chapter"
-        case .endOfBook:
-            return "End of book"
+        case .duration(let minutes): return "\(minutes) minutes"
+        case .endOfChapter: return "End of chapter"
+        case .endOfBook: return "End of book"
         }
     }
     
     var description: String {
         switch self {
-        case .duration(let minutes):
-            return "duration(\(minutes)min)"
-        case .endOfChapter:
-            return "endOfChapter"
-        case .endOfBook:
-            return "endOfBook"
+        case .duration(let minutes): return "duration(\(minutes)min)"
+        case .endOfChapter: return "endOfChapter"
+        case .endOfBook: return "endOfBook"
         }
     }
 }
 
-// MARK: - Sleep Timer Persistence State
 private struct SleepTimerPersistenceState: Codable {
     let endDate: Date
     let mode: String
-    
-    enum CodingKeys: String, CodingKey {
-        case endDate, mode
-    }
 }
 
-// MARK: - Sleep Timer ViewModel
+// MARK: - Sleep Timer Service
 @MainActor
 class SleepTimerService: ObservableObject {
     @Published var selectedMinutes: Int = 30
@@ -52,7 +41,6 @@ class SleepTimerService: ObservableObject {
     let player: AudioPlayer
     private let timerOptions = [5, 10, 15, 30, 45, 60, 90, 120]
     
-    // Dependencies
     private let timerService: TimerManaging
     private var observers: [NSObjectProtocol] = []
     
@@ -63,47 +51,54 @@ class SleepTimerService: ObservableObject {
         self.player = player
         self.timerService = timerService
         
-        setupTimerDelegate()
+        setupCallbacks()
         setupNotifications()
         restoreTimerState()
     }
     
-    // MARK: - Public Interface
-    
-    var timerOptionsArray: [Int] {
-        timerOptions
+    private func setupCallbacks() {
+        // Configure the actor with thread-safe closures that dispatch back to MainActor
+        Task {
+            await timerService.setCallbacks(
+                onTick: { [weak self] time in
+                    Task { @MainActor in
+                        self?.remainingTime = time
+                    }
+                },
+                onComplete: { [weak self] in
+                    Task { @MainActor in
+                        self?.timerDidComplete()
+                    }
+                }
+            )
+        }
     }
+    
+    var timerOptionsArray: [Int] { timerOptions }
     
     func startTimer(mode: SleepTimerMode) {
-        cancelTimer()
-        
-        let duration: TimeInterval
-        
-        switch mode {
-        case .duration(let minutes):
-            duration = TimeInterval(minutes * 60)
+        Task {
+            await cancelTimer()
             
-        case .endOfChapter:
-            guard let chapterEnd = player.currentChapter?.end else {
-                AppLogger.general.debug("[SleepTimer] Cannot start end-of-chapter timer - no chapter info")
-                return
+            let duration: TimeInterval
+            switch mode {
+            case .duration(let minutes):
+                duration = TimeInterval(minutes * 60)
+            case .endOfChapter:
+                guard let chapterEnd = player.currentChapter?.end else { return }
+                duration = max(0, chapterEnd - player.currentTime)
+            case .endOfBook:
+                duration = max(0, player.duration - player.currentTime)
             }
-            duration = max(0, chapterEnd - player.currentTime)
             
-        case .endOfBook:
-            duration = max(0, player.duration - player.currentTime)
+            guard duration > 0 else { return }
+            
+            await startTimerWithDuration(duration, mode: mode)
         }
-        
-        guard duration > 0 else {
-            AppLogger.general.debug("[SleepTimer] Invalid timer duration: \(duration)")
-            return
-        }
-        
-        startTimerWithDuration(duration, mode: mode)
     }
     
-    func cancelTimer() {
-        timerService.cancel()
+    func cancelTimer() async {
+        await timerService.cancel()
         
         isTimerActive = false
         remainingTime = 0
@@ -115,12 +110,10 @@ class SleepTimerService: ObservableObject {
         AppLogger.general.debug("[SleepTimer] Timer cancelled")
     }
     
-    // MARK: - Timer Implementation
-    
-    private func startTimerWithDuration(_ duration: TimeInterval, mode: SleepTimerMode) {
+    private func startTimerWithDuration(_ duration: TimeInterval, mode: SleepTimerMode) async {
         let endDate = Date().addingTimeInterval(duration)
         
-        timerService.start(duration: duration)
+        await timerService.start(duration: duration)
         
         isTimerActive = true
         remainingTime = duration
@@ -129,30 +122,39 @@ class SleepTimerService: ObservableObject {
         saveTimerState(endDate: endDate, mode: mode)
         scheduleTimerEndNotification(fireDate: endDate)
         
-        AppLogger.general.debug("[SleepTimer] Timer started - duration: \(duration)s, mode: \(mode)")
+        AppLogger.general.debug("[SleepTimer] Timer started - duration: \(duration)s")
     }
     
-    private func setupTimerDelegate() {
-        if let timer = timerService as? TimerService {
-            timer.delegate = self
-        }
+    // MARK: - Logic
+    
+    func timerDidComplete() {
+        AppLogger.general.debug("[SleepTimer] Timer finished - pausing playback")
+        
+        player.pause()
+        
+        isTimerActive = false
+        remainingTime = 0
+        currentMode = nil
+        
+        clearTimerState()
+        
+        #if !targetEnvironment(simulator)
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        #endif
     }
     
-    // MARK: - Persistence
+    // MARK: - Persistence & Notifications (Same as before)
     
     private func saveTimerState(endDate: Date, mode: SleepTimerMode) {
         let modeString: String
         switch mode {
-        case .duration(let minutes):
-            modeString = "duration:\(minutes)"
-        case .endOfChapter:
-            modeString = "endOfChapter"
-        case .endOfBook:
-            modeString = "endOfBook"
+        case .duration(let minutes): modeString = "duration:\(minutes)"
+        case .endOfChapter: modeString = "endOfChapter"
+        case .endOfBook: modeString = "endOfBook"
         }
         
         let state = SleepTimerPersistenceState(endDate: endDate, mode: modeString)
-        
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: "sleep_timer_state")
         }
@@ -160,12 +162,9 @@ class SleepTimerService: ObservableObject {
     
     private func restoreTimerState() {
         guard let data = UserDefaults.standard.data(forKey: "sleep_timer_state"),
-              let state = try? JSONDecoder().decode(SleepTimerPersistenceState.self, from: data) else {
-            return
-        }
+              let state = try? JSONDecoder().decode(SleepTimerPersistenceState.self, from: data) else { return }
         
         let remaining = state.endDate.timeIntervalSinceNow
-        
         guard remaining > 0 else {
             clearTimerState()
             return
@@ -180,127 +179,61 @@ class SleepTimerService: ObservableObject {
         } else if state.mode == "endOfBook" {
             mode = .endOfBook
         } else {
-            clearTimerState()
             return
         }
         
-        startTimerWithDuration(remaining, mode: mode)
-        
-        AppLogger.general.debug("[SleepTimer] Restored timer state - remaining: \(remaining)s")
+        Task {
+            await startTimerWithDuration(remaining, mode: mode)
+        }
     }
     
     private func clearTimerState() {
         UserDefaults.standard.removeObject(forKey: "sleep_timer_state")
     }
     
-    // MARK: - Notifications
-    
     private func setupNotifications() {
-        let backgroundObserver = NotificationCenter.default.addObserver(
+        let observer = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // Run on MainActor since we're accessing @MainActor properties
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
-                if self.isTimerActive {
-                    self.saveCurrentTimerState()
-                }
-            }
+            guard let self = self, self.isTimerActive, let mode = self.currentMode else { return }
+            let endDate = Date().addingTimeInterval(self.remainingTime)
+            self.saveTimerState(endDate: endDate, mode: mode)
         }
-        observers.append(backgroundObserver)
-        
-        requestNotificationPermission()
-    }
-    
-    private func saveCurrentTimerState() {
-        guard isTimerActive, let mode = currentMode else { return }
-        let endDate = Date().addingTimeInterval(remainingTime)
-        saveTimerState(endDate: endDate, mode: mode)
-    }
-    
-    private func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error = error {
-                AppLogger.general.debug("[SleepTimer] Notification permission error: \(error)")
-            } else if granted {
-                AppLogger.general.debug("[SleepTimer] Notification permission granted")
-            }
-        }
+        observers.append(observer)
     }
     
     private func scheduleTimerEndNotification(fireDate: Date) {
         let content = UNMutableNotificationContent()
         content.title = "Sleep Timer"
-        content.body = "Playback has been paused"
+        content.body = "Playback paused"
         content.sound = .default
         
         let trigger = UNCalendarNotificationTrigger(
-            dateMatching: Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute, .second],
-                from: fireDate
-            ),
+            dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: fireDate),
             repeats: false
         )
         
-        let request = UNNotificationRequest(
-            identifier: "sleep_timer_end",
-            content: content,
-            trigger: trigger
-        )
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                AppLogger.general.debug("[SleepTimer] Failed to schedule notification: \(error)")
-            }
-        }
+        let request = UNNotificationRequest(identifier: "sleep_timer_end", content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request) { _ in }
     }
     
     private func cancelTimerEndNotification() {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(
-            withIdentifiers: ["sleep_timer_end"]
-        )
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["sleep_timer_end"])
     }
-    
-    // MARK: - Cleanup
     
     deinit {
-        timerService.cancel()
-        observers.forEach { observer in
-            NotificationCenter.default.removeObserver(observer)
+        let service = timerService
+        // Fire and forget cancellation
+        Task.detached {
+            await service.cancel()
         }
-        observers.removeAll()
-        AppLogger.general.debug("[SleepTimer] ViewModel deinitialized")
-    }
-}
-
-// MARK: - Timer Delegate
-extension SleepTimerService: TimerDelegate {
-    nonisolated func timerDidTick(remainingTime: TimeInterval) {
-        Task { @MainActor in
-            self.remainingTime = remainingTime
+        
+        Task.detached {
+            AppLogger.general.debug("[SleepTimer] Deinitialized")
         }
-    }
-    
-    nonisolated func timerDidComplete() {
-        Task { @MainActor in
-            AppLogger.general.debug("[SleepTimer] Timer finished - pausing playback")
-            
-            player.pause()
-            
-            isTimerActive = false
-            remainingTime = 0
-            currentMode = nil
-            
-            clearTimerState()
-            
-            #if !targetEnvironment(simulator)
-            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-            impactFeedback.impactOccurred()
-            #endif
-            
-            AppLogger.general.debug("[SleepTimer] Sleep timer completed successfully")
-        }
+        
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }

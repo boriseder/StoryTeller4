@@ -31,19 +31,16 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
     let libraryId: String?
     let collapsedSeries: Series?
     
-    // Series-specific properties
     let name: String?
     let nameIgnorePrefix: String?
     let books: [LibraryItem]?
     let addedAt: Date?
     
-    // Author-specific properties
     let numBooks: Int?
     let authorDescription: String?
     let imagePath: String?
     let updatedAt: Date?
     
-    // Coding Keys
     private enum CodingKeys: String, CodingKey {
         case id, media, libraryId, collapsedSeries
         case name, nameIgnorePrefix, books, addedAt, numBooks
@@ -58,7 +55,6 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
         return .unknown
     }
     
-    // Computed Properties for conversion
     var asLibraryItem: LibraryItem? {
         guard let media = media else { return nil }
         return LibraryItem(
@@ -104,26 +100,21 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
         id = try container.decode(String.self, forKey: .id)
         media = try container.decodeIfPresent(Media.self, forKey: .media)
         libraryId = try container.decodeIfPresent(String.self, forKey: .libraryId)
         collapsedSeries = try container.decodeIfPresent(Series.self, forKey: .collapsedSeries)
-        
         name = try container.decodeIfPresent(String.self, forKey: .name)
         nameIgnorePrefix = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefix)
         books = try container.decodeIfPresent([LibraryItem].self, forKey: .books)
-        
         if let timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .addedAt) {
             addedAt = TimestampConverter.dateFromServer(timestamp)
         } else {
             addedAt = nil
         }
-        
         numBooks = try container.decodeIfPresent(Int.self, forKey: .numBooks)
         authorDescription = try container.decodeIfPresent(String.self, forKey: .authorDescription)
         imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
-        
         if let timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) {
             updatedAt = TimestampConverter.dateFromServer(timestamp)
         } else {
@@ -152,7 +143,6 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
     }
 }
 
-// Enums must be Sendable (implicitly are if purely value-typed)
 enum PersonalizedEntityType: Sendable {
     case book, series, author, unknown
 }
@@ -184,6 +174,43 @@ enum PersonalizedSectionType: String, CaseIterable, Sendable {
         case .newestAuthors: return "person.2.fill"
         case .continueListening: return "play.circle.fill"
         case .recentlyFinished: return "checkmark.circle.fill"
+        }
+    }
+}
+
+// MARK: - Sort Options
+protocol SortOptionProtocol: CaseIterable, RawRepresentable where RawValue == String {
+    var systemImage: String { get }
+}
+
+enum LibrarySortOption: String, CaseIterable, Hashable, Identifiable, SortOptionProtocol, Sendable {
+    case title = "Title"
+    case author = "Author"
+    case recent = "Last added"
+    
+    var id: String { rawValue }
+    
+    var systemImage: String {
+        switch self {
+        case .title: return "textformat.abc"
+        case .author: return "person.fill"
+        case .recent: return "clock.fill"
+        }
+    }
+}
+
+enum SeriesSortOption: String, CaseIterable, SortOptionProtocol, Sendable {
+    case name = "Name"
+    case recent = "Added recently"
+    case bookCount = "Number of books"
+    case duration = "Duration"
+    
+    var systemImage: String {
+        switch self {
+        case .name: return "textformat.abc"
+        case .recent: return "clock.fill"
+        case .bookCount: return "books.vertical"
+        case .duration: return "timer"
         }
     }
 }

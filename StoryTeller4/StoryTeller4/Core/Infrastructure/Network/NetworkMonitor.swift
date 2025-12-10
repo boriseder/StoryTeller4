@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 // MARK: - Network Status
-enum NetworkStatus: Equatable, CustomStringConvertible, Sendable {
+enum NetworkStatus: Sendable {
     case online
     case offline
     case unknown
@@ -16,13 +16,25 @@ enum NetworkStatus: Equatable, CustomStringConvertible, Sendable {
     }
 }
 
+// Explicit Equatable conformance to avoid isolation issues
+extension NetworkStatus: Equatable {
+    nonisolated static func == (lhs: NetworkStatus, rhs: NetworkStatus) -> Bool {
+        switch (lhs, rhs) {
+        case (.online, .online), (.offline, .offline), (.unknown, .unknown):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 // MARK: - Protocol
-// Must be Sendable and async-capable
 protocol NetworkMonitoring: Sendable {
     var currentStatus: NetworkStatus { get async }
     func startMonitoring() async
     func stopMonitoring() async
     func forceRefresh() async
+    func onStatusChange(_ handler: @escaping @Sendable (NetworkStatus) -> Void) async
 }
 
 // MARK: - Network Monitor Actor
@@ -31,7 +43,7 @@ actor NetworkMonitor: NetworkMonitoring {
     private var monitor = NWPathMonitor()
     // Actors don't need explicit queues for isolation, but NWPathMonitor needs one for callbacks
     private let queue = DispatchQueue(label: "com.storyteller3.networkmonitor")
-    private var statusHandler: ((NetworkStatus) -> Void)?
+    private var statusHandler: (@Sendable (NetworkStatus) -> Void)?
     private var watchdogTimer: DispatchSourceTimer?
     private var offlineSince: Date?
     private var isRunning = false
@@ -90,7 +102,7 @@ actor NetworkMonitor: NetworkMonitoring {
         offlineSince = Date()
     }
     
-    func onStatusChange(_ handler: @escaping (NetworkStatus) -> Void) {
+    func onStatusChange(_ handler: @escaping @Sendable (NetworkStatus) -> Void) {
         statusHandler = handler
     }
     
@@ -121,7 +133,7 @@ actor NetworkMonitor: NetworkMonitoring {
         monitor.cancel()
         let newMonitor = NWPathMonitor()
         monitor = newMonitor
-        // Re-assign handler logic
+        
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
             let newStatus: NetworkStatus = path.status == .satisfied ? .online : .offline
@@ -131,13 +143,12 @@ actor NetworkMonitor: NetworkMonitoring {
     }
     
     deinit {
-        // Since deinit can't safely access actor state synchronously, we rely on best effort
-        // or explicit cleanup by owner.
-        // monitor.cancel() is unsafe here if monitor isn't isolated, but here it's inside actor.
+        // monitor.cancel() cannot be called safely here in deinit for an actor
     }
 }
 
 // MARK: - Notification Extension
-extension Notification.Name {
+// Defined here to ensure visibility
+public extension Notification.Name {
     static let networkConnectivityChanged = Notification.Name("networkConnectivityChanged")
 }

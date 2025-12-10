@@ -2,16 +2,13 @@ import os
 import Foundation
 
 enum AppLogger {
-    private static let subsystem = "at.amtabor.StoryTeller3"
+    private nonisolated static let subsystem = "at.amtabor.StoryTeller3"
 
     // MARK: - Logger Wrapper
-    // Sendable class ensures thread safety for the static instances below
     final class LogWrapper: Sendable {
-        let logger: Logger
         let category: String
-
-        init(logger: Logger, category: String) {
-            self.logger = logger
+        
+        nonisolated init(category: String) {
             self.category = category
         }
 
@@ -20,7 +17,12 @@ enum AppLogger {
             let line = "[\(timestamp)] \(level) [\(category)] \(message)"
 
             AppLogger.writeToFile(line)
-            logger.log(level: osLevel, "\(message, privacy: .public)")
+            
+            // Create logger on-demand in MainActor context
+            Task { @MainActor in
+                let logger = Logger(subsystem: AppLogger.subsystem, category: self.category)
+                logger.log(level: osLevel, "\(message, privacy: .public)")
+            }
         }
 
         func debug(_ msg: String) { write("🐞 DEBUG", message: msg, osLevel: .debug) }
@@ -29,13 +31,12 @@ enum AppLogger {
         func error(_ msg: String) { write("❌ ERROR", message: msg, osLevel: .error) }
     }
 
-    // MARK: - Categories
-    // Explicitly Sendable wrappers do not need 'nonisolated' keyword here
-    static let general = LogWrapper(logger: Logger(subsystem: subsystem, category: "General"), category: "General")
-    static let ui      = LogWrapper(logger: Logger(subsystem: subsystem, category: "UI"), category: "UI")
-    static let network = LogWrapper(logger: Logger(subsystem: subsystem, category: "Network"), category: "Network")
-    static let audio   = LogWrapper(logger: Logger(subsystem: subsystem, category: "Audio"), category: "Audio")
-    static let cache   = LogWrapper(logger: Logger(subsystem: subsystem, category: "Cache"), category: "Cache")
+    // MARK: - Categories (using computed properties to avoid init isolation)
+    nonisolated static var general: LogWrapper { LogWrapper(category: "General") }
+    nonisolated static var ui: LogWrapper { LogWrapper(category: "UI") }
+    nonisolated static var network: LogWrapper { LogWrapper(category: "Network") }
+    nonisolated static var audio: LogWrapper { LogWrapper(category: "Audio") }
+    nonisolated static var cache: LogWrapper { LogWrapper(category: "Cache") }
 
     // MARK: - Safe File Logging via Actor
     private actor FileLogger {
@@ -53,24 +54,24 @@ enum AppLogger {
         
         func write(_ text: String) {
             guard let data = (text + "\n").data(using: .utf8) else { return }
-            // Using a local handle to ensure safety
+            
             if let handle = try? FileHandle(forWritingTo: logFileURL) {
                 defer { try? handle.close() }
-                try? handle.seekToEnd()
+                _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
             }
         }
     }
     
-    private static let fileLogger = FileLogger()
+    private nonisolated static let fileLogger = FileLogger()
 
-    static func writeToFile(_ text: String) {
+    nonisolated static func writeToFile(_ text: String) {
         Task {
             await fileLogger.write(text)
         }
     }
 
-    static func logFilePath() -> URL {
+    nonisolated static func logFilePath() -> URL {
         let fm = FileManager.default
         return fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AppLogs.txt")

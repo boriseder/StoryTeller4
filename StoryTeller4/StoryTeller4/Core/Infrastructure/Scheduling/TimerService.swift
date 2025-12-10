@@ -1,12 +1,5 @@
 import Foundation
 
-// Delegate needs to be AnyObject to be weak, and usually UI related (MainActor)
-@MainActor
-protocol TimerDelegate: AnyObject {
-    func timerDidTick(remainingTime: TimeInterval)
-    func timerDidComplete()
-}
-
 enum TimerState: Sendable {
     case idle
     case running
@@ -23,21 +16,34 @@ protocol TimerManaging: Sendable {
     func pause() async
     func resume() async
     func cancel() async
+    
+    // New callback configuration method
+    func setCallbacks(
+        onTick: @escaping @Sendable (TimeInterval) -> Void,
+        onComplete: @escaping @Sendable () -> Void
+    ) async
 }
 
 // Converted to Actor
 actor TimerService: TimerManaging {
     
     private var timer: DispatchSourceTimer?
-    // Removed queue (actor is the queue)
     
     private(set) var state: TimerState = .idle
     private(set) var remainingTime: TimeInterval = 0
     private var endDate: Date?
     
-    // Delegate access is tricky in actors.
-    // We store it as weak MainActor-isolated reference.
-    @MainActor weak var delegate: TimerDelegate?
+    // Callbacks instead of Delegate to handle isolation boundaries cleanly
+    private var onTick: (@Sendable (TimeInterval) -> Void)?
+    private var onComplete: (@Sendable () -> Void)?
+    
+    func setCallbacks(
+        onTick: @escaping @Sendable (TimeInterval) -> Void,
+        onComplete: @escaping @Sendable () -> Void
+    ) {
+        self.onTick = onTick
+        self.onComplete = onComplete
+    }
     
     func start(duration: TimeInterval) {
         guard duration > 0 else { return }
@@ -51,6 +57,7 @@ actor TimerService: TimerManaging {
         
         startTimerInternal()
         
+        // LogWrapper is thread-safe
         AppLogger.general.debug("[TimerService] Started timer with duration: \(duration)s")
     }
     
@@ -89,8 +96,6 @@ actor TimerService: TimerManaging {
     }
     
     private func startTimerInternal() {
-        // DispatchSourceTimer needs a queue. Even within an actor, the timer fires on a queue.
-        // We use a private queue for the timer mechanism, but synchronize state updates back to the actor.
         let queue = DispatchQueue(label: "com.storyteller3.timer.internal", qos: .utility)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .seconds(1), leeway: .milliseconds(100))
@@ -111,10 +116,8 @@ actor TimerService: TimerManaging {
         let remaining = endDate.timeIntervalSinceNow
         self.remainingTime = max(0, remaining)
         
-        // Notify delegate on MainActor
-        await MainActor.run {
-            self.delegate?.timerDidTick(remainingTime: self.remainingTime)
-        }
+        // Call the closure directly (it's Sendable, so safe to call)
+        onTick?(self.remainingTime)
         
         if remaining <= 0 {
             complete()
@@ -125,15 +128,12 @@ actor TimerService: TimerManaging {
         cancelTimerInternal()
         state = .completed
         
-        Task { @MainActor in
-            delegate?.timerDidComplete()
-        }
+        onComplete?()
         
         AppLogger.general.debug("[TimerService] Timer completed")
     }
     
     deinit {
-        // Deinit in actors is constrained, but we can try to cancel the timer object if it exists
-        // Note: You can't access `timer` here if it implies isolation check, but checking optional storage is mostly safe.
+        timer?.cancel()
     }
 }
