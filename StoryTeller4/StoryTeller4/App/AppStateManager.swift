@@ -92,12 +92,17 @@ class AppStateManager: ObservableObject {
         self.connectionHealthChecker = connectionHealthChecker
 
         checkFirstLaunch()
-        setupNetworkMonitoring()
+        
+        // Start monitoring asynchronously
+        Task {
+            await setupNetworkMonitoring()
+        }
     }
 
     // MARK: - Network Monitoring
-    private func setupNetworkMonitoring() {
-        networkMonitor.onStatusChange { [weak self] status in
+    private func setupNetworkMonitoring() async {
+        // Actor call requires await
+        await networkMonitor.onStatusChange { [weak self] status in
             Task { @MainActor in
                 guard let self = self else { return }
 
@@ -110,7 +115,8 @@ class AppStateManager: ObservableObject {
                     self.isServerReachable = false
 
                 case .online:
-                    self.networkMonitor.forceRefresh()
+                    // Force refresh on actor
+                    await self.networkMonitor.forceRefresh()
                     await self.checkServerReachability()
                     self.verifyConnectionHealth()
 
@@ -121,18 +127,22 @@ class AppStateManager: ObservableObject {
             }
         }
         
-        networkMonitor.startMonitoring()
+        // Start monitoring on actor
+        await networkMonitor.startMonitoring()
         AppLogger.general.info("[AppState] Network monitoring started")
     }
 
     // MARK: - Self-Healing
     private func verifyConnectionHealth() {
         Task { @MainActor in
-            guard networkMonitor.currentStatus == .online else { return }
+            // Await actor property access
+            let status = await networkMonitor.currentStatus
+            guard status == .online else { return }
 
             try? await Task.sleep(nanoseconds: 5_000_000_000)
 
-            networkMonitor.forceRefresh()
+            // Await actor method
+            await networkMonitor.forceRefresh()
             await checkServerReachability()
             
             AppLogger.general.debug("[AppState] Connection health verified after self-heal")
@@ -143,7 +153,8 @@ class AppStateManager: ObservableObject {
     func checkServerReachability() async {
         guard let api = DependencyContainer.shared.apiClient else { return }
 
-        let monitorStatus = networkMonitor.currentStatus
+        // Await actor property access
+        let monitorStatus = await networkMonitor.currentStatus
 
         let health = await connectionHealthChecker.checkHealth(
             baseURL: api.baseURLString,

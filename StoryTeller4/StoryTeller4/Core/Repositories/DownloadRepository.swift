@@ -51,8 +51,6 @@ final class DefaultDownloadRepository: DownloadRepository {
         self.downloadManager = downloadManager
         
         loadDownloadedBooks()
-        
-        // Start healing service (Sendable)
         healingService.start()
     }
     
@@ -64,17 +62,14 @@ final class DefaultDownloadRepository: DownloadRepository {
         guard !isBookDownloaded(book.id),
               let manager = downloadManager,
               !manager.isDownloadingBook(book.id) else {
-            AppLogger.general.debug("[DownloadRepository] Book already downloaded or downloading")
             return
         }
         
         let task = Task {
             guard let manager = self.downloadManager else { return }
-            
             manager.isDownloading[book.id] = true
             manager.downloadProgress[book.id] = 0.0
             manager.downloadStage[book.id] = .preparing
-            manager.downloadStatus[book.id] = "Preparing download..."
             
             do {
                 try await self.orchestrationService.downloadBook(book, api: api) { bookId, progress, status, stage in
@@ -94,17 +89,10 @@ final class DefaultDownloadRepository: DownloadRepository {
                     manager.downloadStatus[book.id] = "Download complete!"
                     
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    
                     manager.downloadStatus.removeValue(forKey: book.id)
                     manager.downloadStage.removeValue(forKey: book.id)
                 }
-                
-            } catch is CancellationError {
-                AppLogger.general.debug("[DownloadRepository] Download cancelled: \(book.title)")
-                self.handleDownloadFailure(bookId: book.id, error: "Download cancelled")
-                
-            } catch let error {
-                AppLogger.general.error("[DownloadRepository] Download failed: \(error.localizedDescription)")
+            } catch {
                 self.handleDownloadFailure(bookId: book.id, error: error.localizedDescription)
             }
         }
@@ -121,7 +109,8 @@ final class DefaultDownloadRepository: DownloadRepository {
         manager.downloadStage[bookId] = .failed
         manager.downloadStatus[bookId] = error
         
-        self.cleanupFailedDownload(bookId: bookId)
+        let bookDir = storageService.bookDirectory(for: bookId)
+        try? storageService.deleteBookDirectory(at: bookDir)
     }
     
     func cancelDownload(for bookId: String) {
@@ -131,49 +120,24 @@ final class DefaultDownloadRepository: DownloadRepository {
     }
     
     func cancelAllDownloads() {
-        for bookId in downloadTasks.keys {
-            cancelDownload(for: bookId)
-        }
-        
-        guard let manager = downloadManager else { return }
-        manager.isDownloading.removeAll()
-        manager.downloadProgress.removeAll()
-        manager.downloadStatus.removeAll()
-        manager.downloadStage.removeAll()
+        for bookId in downloadTasks.keys { cancelDownload(for: bookId) }
     }
     
     func deleteBook(_ bookId: String) {
         let bookDir = storageService.bookDirectory(for: bookId)
-        
         do {
             try storageService.deleteBookDirectory(at: bookDir)
-            
-            guard let manager = downloadManager else { return }
-            manager.downloadedBooks.removeAll { $0.id == bookId }
-            manager.downloadProgress.removeValue(forKey: bookId)
-            manager.isDownloading.removeValue(forKey: bookId)
-            
-            AppLogger.general.debug("[DownloadRepository] Deleted book: \(bookId)")
+            downloadManager?.downloadedBooks.removeAll { $0.id == bookId }
+            downloadManager?.downloadProgress.removeValue(forKey: bookId)
+            downloadManager?.isDownloading.removeValue(forKey: bookId)
         } catch {
-            AppLogger.general.error("[DownloadRepository] Failed to delete book: \(error)")
+            AppLogger.general.error("Failed to delete book: \(error)")
         }
     }
     
     func deleteAllBooks() {
         let allBooks = getDownloadedBooks()
-        
-        for book in allBooks {
-            deleteBook(book.id)
-        }
-        
-        guard let manager = downloadManager else { return }
-        manager.downloadedBooks.removeAll()
-        manager.downloadProgress.removeAll()
-        manager.isDownloading.removeAll()
-        manager.downloadStatus.removeAll()
-        manager.downloadStage.removeAll()
-        
-        AppLogger.general.debug("[DownloadRepository] Deleted all books")
+        for book in allBooks { deleteBook(book.id) }
     }
     
     func getDownloadedBooks() -> [Book] {
@@ -183,11 +147,7 @@ final class DefaultDownloadRepository: DownloadRepository {
     func preloadDownloadedBooks() async -> [Book] {
         let books = storageService.loadDownloadedBooks()
             .filter { validationService.validateBookIntegrity(bookId: $0.id, storageService: storageService).isValid }
-        
-        if let manager = downloadManager {
-            manager.downloadedBooks = books
-        }
-
+        downloadManager?.downloadedBooks = books
         return books
     }
     
@@ -196,25 +156,17 @@ final class DefaultDownloadRepository: DownloadRepository {
     }
 
     func getOfflineStatus(for bookId: String) -> OfflineStatus {
-        if downloadManager?.isDownloadingBook(bookId) == true {
-            return .downloading
-        }
-        if isBookDownloaded(bookId) {
-            return .available
-        }
+        if downloadManager?.isDownloadingBook(bookId) == true { return .downloading }
+        if isBookDownloaded(bookId) { return .available }
         return .notDownloaded
     }
     
     func getDownloadStatus(for bookId: String) -> DownloadStatus {
-        let offlineStatus = getOfflineStatus(for: bookId)
-        switch offlineStatus {
-        case .notDownloaded:
-            return DownloadStatus(isDownloaded: false, isDownloading: false)
-        case .downloading:
-            return DownloadStatus(isDownloaded: false, isDownloading: true)
-        case .available:
-            return DownloadStatus(isDownloaded: true, isDownloading: false)
-        }
+        let status = getOfflineStatus(for: bookId)
+        return DownloadStatus(
+            isDownloaded: status == .available,
+            isDownloading: status == .downloading
+        )
     }
     
     func getDownloadProgress(for bookId: String) -> Double {
@@ -246,9 +198,7 @@ final class DefaultDownloadRepository: DownloadRepository {
         let validBooks = books.filter { book in
             validationService.validateBookIntegrity(bookId: book.id, storageService: storageService).isValid
         }
-        
         downloadManager?.downloadedBooks = validBooks
-        AppLogger.general.debug("[DownloadRepository] Loaded \(validBooks.count) valid books")
     }
     
     private func loadBook(bookId: String) -> Book? {
@@ -260,32 +210,11 @@ final class DefaultDownloadRepository: DownloadRepository {
         return book
     }
     
-    private func cleanupFailedDownload(bookId: String) {
-        let bookDir = storageService.bookDirectory(for: bookId)
-        try? storageService.deleteBookDirectory(at: bookDir)
-    }
-    
     deinit {
-        // Fire and forget stopping service on deinit via a detached task
         let healing = healingService
-        let orchestration = orchestrationService
-        
-        // Since deinit cannot be isolated to MainActor but the class is,
-        // we must be careful. Stopping services which are Sendable is fine.
-        // We cannot access 'self' properties that aren't captured.
-        
         Task {
             healing.stop()
         }
-        
         for (_, task) in downloadTasks { task.cancel() }
-        
-        // Orchestration service is Sendable, safe to call
-        // However, iterating 'downloadTasks' accesses a MainActor property from deinit.
-        // Swift 6 is very strict here.
-        // Best practice: The downloadTasks should be cancelled.
-        // If 'downloadTasks' is modified only on MainActor, accessing it in deinit (which might run elsewhere) is unsafe.
-        // Ideally, call a cleanup method before releasing the repository.
-        // For now, we rely on the tasks being cancelled when the dictionary is deallocated.
     }
 }

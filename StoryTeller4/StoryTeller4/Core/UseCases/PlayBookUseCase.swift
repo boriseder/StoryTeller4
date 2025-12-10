@@ -1,8 +1,37 @@
 import Foundation
 
+enum PlaybackMode: CustomStringConvertible, Sendable {
+    case online
+    case offline
+    case unavailable
+    
+    var description: String {
+        switch self {
+        case .online: return "online"
+        case .offline: return "offline"
+        case .unavailable: return "unavailable"
+        }
+    }
+}
+
+enum PlayBookError: LocalizedError, Sendable {
+    case notAvailableOffline(String)
+    case fetchFailed(Error)
+    case bookNotDownloadedOfflineOnly(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .notAvailableOffline(let title):
+            return "'\(title)' is not available offline and no internet connection is available."
+        case .fetchFailed(let error):
+            return "Could not load book: \(error.localizedDescription)"
+        case .bookNotDownloadedOfflineOnly(let title):
+            return "'\(title)' needs to be downloaded for offline playback."
+        }
+    }
+}
+
 protocol PlayBookUseCaseProtocol: Sendable {
-    // Arguments like AudioPlayer and AppStateManager are @MainActor types.
-    // The function itself should run on MainActor to interact with them synchronously.
     @MainActor func execute(
         book: Book,
         api: AudiobookshelfClient,
@@ -50,18 +79,16 @@ final class PlayBookUseCase: PlayBookUseCaseProtocol, Sendable {
             downloadManager: downloadManager
         )
         
+        let isOffline = playbackMode == .offline
         await player.load(
             book: fullBook,
-            isOffline: playbackMode == .offline,
+            isOffline: isOffline,
             restoreState: restoreState,
             autoPlay: autoPlay
         )
 
         AppLogger.general.debug("[PlayBookUseCase] Loaded: \(fullBook.title) (\(playbackMode))")
     }
-    
-    // MARK: - Private Helpers (Stateless)
-    // These manipulate @MainActor types, so they inherit that isolation naturally when called from execute
     
     @MainActor
     private func loadBookMetadata(
@@ -70,8 +97,6 @@ final class PlayBookUseCase: PlayBookUseCaseProtocol, Sendable {
         downloadManager: DownloadManager,
         isOffline: Bool
     ) async throws -> Book {
-        // Implementation remains same...
-        // MainActor isolation allows synchronous access to downloadManager.isBookDownloaded
         
         let isDownloaded = downloadManager.isBookDownloaded(book.id)
         
@@ -114,7 +139,6 @@ final class PlayBookUseCase: PlayBookUseCaseProtocol, Sendable {
         let bookDir = downloadManager.bookDirectory(for: bookId)
         let metadataURL = bookDir.appendingPathComponent("metadata.json")
         
-        // FileManager is thread-safe
         guard FileManager.default.fileExists(atPath: metadataURL.path) else {
             throw NSError(domain: "PlayBookUseCase", code: -1, userInfo: [NSLocalizedDescriptionKey: "Local metadata not found"])
         }

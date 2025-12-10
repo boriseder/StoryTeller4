@@ -1,12 +1,9 @@
-// REFACTORED: BookCardStateViewModel
-// Changes: Added PlaybackRepository integration for progress display with proper async loading
-
 import Foundation
 import SwiftUI
 import Combine
 
 @MainActor
-class BookCardViewModel: ObservableObject {
+class BookCardViewModel: ObservableObject, Identifiable {
     let book: Book
     private let container: DependencyContainer
     
@@ -18,7 +15,7 @@ class BookCardViewModel: ObservableObject {
     @Published private var cachedState: PlaybackState?
     @Published private var isLoadingState = true
     
-    // Identifiable conformance - nonisolated for Swift 6 compatibility
+    // Identifiable conformance
     nonisolated var id: String { book.id }
     
     init(book: Book, container: DependencyContainer) {
@@ -26,15 +23,12 @@ class BookCardViewModel: ObservableObject {
         self.container = container
         
         // Load cached state synchronously from local storage first
+        // PlaybackRepository is @MainActor singleton, safe to call from here
         self.cachedState = PlaybackRepository.shared.getPlaybackState(for: book.id)
         self.isLoadingState = false
         
-        // Then refresh from server in background if needed
-        /*
-        Task {
-            await refreshFromServer()
-        }
-         */
+        // Optional: Refresh from server
+        // Task { await refreshFromServer() }
     }
     
     var isCurrentBook: Bool {
@@ -59,22 +53,18 @@ class BookCardViewModel: ObservableObject {
     
     var duration: Double {
         if isCurrentBook {
-            // For currently playing book, use total book duration
             return player.totalBookDuration
         } else {
-            // For other books, use cached duration or calculate from chapters
             return cachedState?.duration ?? calculateTotalDuration()
         }
     }
     
     var currentProgress: Double {
         if isCurrentBook {
-            // For currently playing book, use live player data
             let totalDuration = player.totalBookDuration
             guard totalDuration > 0 else { return 0 }
             return player.absoluteCurrentTime / totalDuration
         } else {
-            // For other books, use cached state
             guard let state = cachedState, state.duration > 0 else { return 0 }
             return state.currentTime / state.duration
         }
@@ -83,17 +73,11 @@ class BookCardViewModel: ObservableObject {
     // MARK: - Private Helpers
     
     private func refreshFromServer() async {
-        // Only refresh from server if we don't have local data
         guard cachedState == nil else { return }
         
         isLoadingState = true
         cachedState = await PlaybackRepository.shared.loadStateForBook(book.id, book: book)
         isLoadingState = false
-        
-        // Debug output
-        if let state = cachedState {
-            print("✅ [BookCard] \(book.title) - Loaded from server: \(state.currentTime)s / \(state.duration)s = \(currentProgress * 100)%")
-        }
     }
     
     private func calculateTotalDuration() -> Double {
@@ -104,15 +88,9 @@ class BookCardViewModel: ObservableObject {
     // MARK: - Public refresh method
     
     func refreshState() {
-        // Refresh from local storage immediately
-        cachedState = PlaybackRepository.shared.getPlaybackState(for: book.id)
-        
-        // Then refresh from server
+        self.cachedState = PlaybackRepository.shared.getPlaybackState(for: book.id)
         Task {
             await refreshFromServer()
         }
     }
 }
-
-// Separate Identifiable conformance
-extension BookCardViewModel: Identifiable {}

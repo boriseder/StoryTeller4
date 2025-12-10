@@ -3,22 +3,19 @@ import UIKit
 import Combine
 
 // MARK: - Repository Protocol
-// Must be Sendable. Since implementation is @MainActor, access is safe.
 protocol PlaybackRepositoryProtocol: Sendable {
     @MainActor func getPlaybackState(for bookId: String) -> PlaybackState?
     @MainActor func savePlaybackState(_ state: PlaybackState)
     @MainActor func getRecentlyPlayed(limit: Int) -> [PlaybackState]
-    @MainActor func getAllPlaybackStates() -> [String: PlaybackState]
+    @MainActor func getAllPlaybackStates() -> [PlaybackState]
     @MainActor func deletePlaybackState(for bookId: String)
     @MainActor func clearAllPlaybackStates()
-    @MainActor func syncPlaybackProgress() async throws
+    @MainActor func syncPlaybackProgress() async
 }
 
-
-
+// MARK: - Playback Repository Implementation
 @MainActor
 class PlaybackRepository: ObservableObject {
-    // ... existing implementation with Combine import added ...
     static let shared = PlaybackRepository()
     
     @Published var states: [String: PlaybackState] = [:]
@@ -32,27 +29,34 @@ class PlaybackRepository: ObservableObject {
     private init() {
         loadAllStates()
     }
-    // ... rest of implementation ...
     
-    // (Include full class body as previously provided, just ensures Combine is present)
     func configure(api: AudiobookshelfClient) {
         self.api = api
+        AppLogger.general.debug("[PlaybackRepo] Configured with API client")
     }
-    
+
     func setOnlineStatus(_ online: Bool) {
         let wasOffline = !isOnline
         isOnline = online
+        
         if online && wasOffline && !pendingSyncItems.isEmpty {
-            Task { await syncPendingItems() }
+            Task {
+                await syncPendingItems()
+            }
         }
     }
     
+    // MARK: - Load State for Book
     func loadStateForBook(_ itemId: String, book: Book) async -> PlaybackState? {
         var localState = states[itemId]
         
         var serverProgress: MediaProgress?
         if isOnline, let api = api {
-            serverProgress = try? await api.progress.fetchPlaybackProgress(libraryItemId: itemId)
+            do {
+                serverProgress = try await api.progress.fetchPlaybackProgress(libraryItemId: itemId)
+            } catch {
+                // Ignore failure
+            }
         }
         
         if let serverProg = serverProgress {
@@ -72,11 +76,59 @@ class PlaybackRepository: ObservableObject {
         return localState
     }
     
+    private func loadAllStates() {
+        guard let allIds = userDefaults.stringArray(forKey: "all_playback_items") else { return }
+        
+        for itemId in allIds {
+            let key = "playback_\(itemId)"
+            if let data = userDefaults.data(forKey: key),
+               let state = try? JSONDecoder().decode(PlaybackState.self, from: data) {
+                states[itemId] = state
+                if state.needsSync {
+                    pendingSyncItems.insert(itemId)
+                }
+            }
+        }
+    }
+
+    // MARK: - Public Accessors
+    
+    /// Get playback state synchronously (for UI)
+    func getPlaybackState(for bookId: String) -> PlaybackState? {
+        return states[bookId]
+    }
+
+    func getAllPlaybackStates() -> [PlaybackState] {
+        return Array(states.values)
+    }
+    
+    func getRecentlyPlayed(limit: Int) -> [PlaybackState] {
+        return states.values.sorted(by: { $0.lastUpdate > $1.lastUpdate }).prefix(limit).map { $0 }
+    }
+    
+    // MARK: - Save State
+    
+    func saveState(_ state: PlaybackState) {
+        saveStateLocal(state)
+        
+        if isOnline {
+            Task {
+                await syncToServer(state)
+            }
+        } else {
+            pendingSyncItems.insert(state.libraryItemId)
+        }
+    }
+    
+    func savePlaybackState(_ state: PlaybackState) {
+        saveState(state)
+    }
+    
     private func saveStateLocal(_ state: PlaybackState) {
         let key = "playback_\(state.libraryItemId)"
         if let data = try? JSONEncoder().encode(state) {
             userDefaults.set(data, forKey: key)
-            self.states[state.libraryItemId] = state
+            states[state.libraryItemId] = state
             
             var allIds = userDefaults.stringArray(forKey: "all_playback_items") ?? []
             if !allIds.contains(state.libraryItemId) {
@@ -86,17 +138,11 @@ class PlaybackRepository: ObservableObject {
         }
     }
     
-    func saveState(_ state: PlaybackState) {
-        saveStateLocal(state)
-        if isOnline {
-            Task { await syncToServer(state) }
-        } else {
-            pendingSyncItems.insert(state.libraryItemId)
-        }
-    }
+    // MARK: - Sync Logic
     
     private func syncToServer(_ state: PlaybackState) async {
         guard let api = api, isOnline else { return }
+        
         do {
             try await api.progress.updatePlaybackProgress(
                 libraryItemId: state.libraryItemId,
@@ -112,6 +158,7 @@ class PlaybackRepository: ObservableObject {
     }
     
     private func syncPendingItems() async {
+        guard isOnline else { return }
         for itemId in pendingSyncItems {
             if let state = states[itemId] {
                 await syncToServer(state)
@@ -119,11 +166,14 @@ class PlaybackRepository: ObservableObject {
         }
     }
     
-    func syncFromServer() async {
+    func syncPlaybackProgress() async {
         guard isOnline, let api = api else { return }
         isSyncing = true
+        
         if let allProgress = try? await api.progress.fetchAllMediaProgress() {
             for prog in allProgress {
+                // We create a temp state to check timestamps; real merge happens when book is loaded ideally,
+                // but we can update cache here if server is newer.
                 let newState = PlaybackState(from: prog)
                 if let local = states[prog.libraryItemId] {
                     if prog.lastUpdate > local.lastUpdate {
@@ -137,17 +187,26 @@ class PlaybackRepository: ObservableObject {
         isSyncing = false
     }
     
-    func calculateChapterIndex(currentTime: Double, book: Book) -> Int {
-        book.chapterIndex(at: currentTime)
+    func deletePlaybackState(for bookId: String) {
+        states.removeValue(forKey: bookId)
+        userDefaults.removeObject(forKey: "playback_\(bookId)")
+        
+        var allIds = userDefaults.stringArray(forKey: "all_playback_items") ?? []
+        allIds.removeAll { $0 == bookId }
+        userDefaults.set(allIds, forKey: "all_playback_items")
     }
     
-    private func loadAllStates() {
+    func clearAllPlaybackStates() {
         guard let allIds = userDefaults.stringArray(forKey: "all_playback_items") else { return }
         for itemId in allIds {
-            if let data = userDefaults.data(forKey: "playback_\(itemId)"),
-               let state = try? JSONDecoder().decode(PlaybackState.self, from: data) {
-                states[itemId] = state
-            }
+            userDefaults.removeObject(forKey: "playback_\(itemId)")
         }
+        userDefaults.removeObject(forKey: "all_playback_items")
+        states.removeAll()
+        pendingSyncItems.removeAll()
+    }
+    
+    private func calculateChapterIndex(currentTime: Double, book: Book) -> Int {
+        book.chapterIndex(at: currentTime)
     }
 }
