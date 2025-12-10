@@ -34,24 +34,40 @@ final class DefaultSeriesService: SeriesServiceProtocol, Sendable {
     }
     
     func fetchSeriesBooks(libraryId: String, seriesId: String) async throws -> [Book] {
-        // ... (implementation remains the same) ...
-        // Just ensuring `toSeries()` is not used here either
-        
         let encodedSeriesId = encodeSeriesId(seriesId)
-        // ...
+        
+        var components = URLComponents(string: "\(config.baseURL)/api/libraries/\(libraryId)/items")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "1000"),
+            URLQueryItem(name: "filter", value: "series.\(encodedSeriesId)")
+        ]
+        
+        guard let url = components.url else {
+            throw AudiobookshelfError.invalidURL("\(config.baseURL)/api/libraries/\(libraryId)/items")
+        }
+        
         let request = networkService.createAuthenticatedRequest(url: url, authToken: config.authToken)
         
-        let response: LibraryItemsResponse = try await networkService.performRequest(
-            request,
-            responseType: LibraryItemsResponse.self
-        )
-        let books = response.results.compactMap { converter.convertLibraryItemToBook($0) }
-        return BookSortHelpers.sortByBookNumber(books)
+        do {
+            let response: LibraryItemsResponse = try await networkService.performRequest(
+                request,
+                responseType: LibraryItemsResponse.self
+            )
+            
+            let books = response.results.compactMap { converter.convertLibraryItemToBook($0) }
+            return BookSortHelpers.sortByBookNumber(books)
+            
+        } catch {
+            AppLogger.general.debug("[SeriesService] fetchSeriesBooks error: \(error)")
+            throw error
+        }
     }
     
     private func encodeSeriesId(_ seriesId: String) -> String {
-        // ... (implementation remains the same) ...
-        guard let data = seriesId.data(using: .utf8) else { return seriesId }
+        guard let data = seriesId.data(using: .utf8) else {
+            return seriesId
+        }
+        
         return data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

@@ -1,6 +1,5 @@
 import Foundation
 
-// MARK: - Metadata Model
 struct Metadata: Codable, Hashable, Sendable {
     let title: String
     let author: String?
@@ -43,7 +42,6 @@ struct Metadata: Codable, Hashable, Sendable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
         title = try container.decode(String.self, forKey: .title)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         isbn = try container.decodeIfPresent(String.self, forKey: .isbn)
@@ -61,6 +59,7 @@ struct Metadata: Codable, Hashable, Sendable {
         }
     }
     
+    // Explicit conformance required for Sendable optimization in some contexts
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(title, forKey: .title)
@@ -70,8 +69,6 @@ struct Metadata: Codable, Hashable, Sendable {
         try container.encodeIfPresent(publishedYear, forKey: .publishedYear)
         try container.encodeIfPresent(narrator, forKey: .narrator)
         try container.encodeIfPresent(publisher, forKey: .publisher)
-        
-        // Encode author string as authorName to maintain structure
         try container.encodeIfPresent(author, forKey: .authorName)
     }
 }

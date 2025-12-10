@@ -41,7 +41,8 @@ class AudioPlayer: NSObject, ObservableObject {
     private var timeObserver: Any?
     private var observers: [NSObjectProtocol] = []
     
-    // FIX: Context must be accessible from nonisolated context
+    // FIX: Swift 6 requires global mutable state to be explicitly unsafe if not protected by an actor.
+    // Since this is just a pointer address for KVO context, it is safe.
     private nonisolated(unsafe) static var observerContext = 0
     
     // MARK: - Computed Properties

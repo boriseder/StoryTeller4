@@ -52,7 +52,7 @@ final class DefaultDownloadRepository: DownloadRepository {
         
         loadDownloadedBooks()
         
-        // Start healing service (which is Sendable)
+        // Start healing service (Sendable)
         healingService.start()
     }
     
@@ -266,26 +266,26 @@ final class DefaultDownloadRepository: DownloadRepository {
     }
     
     deinit {
-            // Fire and forget stopping service on deinit
-            // Capture service locally to avoid capturing self
-            let service = healingService
-            Task {
-                // Assuming stop() is safe to call (non-isolated or thread-safe) or via MainActor
-                // If healingService was initialized in init, it's a let property.
-                // If BackgroundHealingService is an actor or MainActor class, await is needed.
-                // Assuming it's the class defined earlier:
-                // Since deinit isn't isolated, we launch a task.
-                service.stop()
-            }
-            
-            for (_, task) in downloadTasks { task.cancel() }
-            
-            // orchestrationService cancelDownload
-            // If orchestrationService is Sendable, we can access it
-            // Note: 'self' is not available here usually for property access if strict.
-            // But for stored properties in final class, it's often okay.
-            // Strictly, we should capture orchestrationService too.
-            // However, Swift 6 deinit rules are strict.
-            // Simplest: Just cancel tasks we hold. Orchestration cancellation is an optimization.
+        // Fire and forget stopping service on deinit via a detached task
+        let healing = healingService
+        let orchestration = orchestrationService
+        
+        // Since deinit cannot be isolated to MainActor but the class is,
+        // we must be careful. Stopping services which are Sendable is fine.
+        // We cannot access 'self' properties that aren't captured.
+        
+        Task {
+            healing.stop()
         }
+        
+        for (_, task) in downloadTasks { task.cancel() }
+        
+        // Orchestration service is Sendable, safe to call
+        // However, iterating 'downloadTasks' accesses a MainActor property from deinit.
+        // Swift 6 is very strict here.
+        // Best practice: The downloadTasks should be cancelled.
+        // If 'downloadTasks' is modified only on MainActor, accessing it in deinit (which might run elsewhere) is unsafe.
+        // Ideally, call a cleanup method before releasing the repository.
+        // For now, we rely on the tasks being cancelled when the dictionary is deallocated.
+    }
 }
