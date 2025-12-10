@@ -1,7 +1,6 @@
 import Foundation
 
 // MARK: - PlaybackSession Request
-/// Sendable: Sent across network boundary
 struct PlaybackSessionRequest: Codable, Sendable {
     let deviceInfo: DeviceInfo
     let supportedMimeTypes: [String]
@@ -25,7 +24,6 @@ struct PlaybackSessionRequest: Codable, Sendable {
 }
 
 // MARK: - PlaybackSession Response
-/// Sendable: Network response, used by playback actor
 struct PlaybackSessionResponse: Codable, Sendable {
     let id: String
     let audioTracks: [AudioTrack]
@@ -34,14 +32,8 @@ struct PlaybackSessionResponse: Codable, Sendable {
     let libraryItemId: String
     let episodeId: String?
     
-    // MARK: - Computed Properties
-    var totalTracks: Int {
-        audioTracks.count
-    }
-    
-    var hasEpisode: Bool {
-        episodeId != nil
-    }
+    var totalTracks: Int { audioTracks.count }
+    var hasEpisode: Bool { episodeId != nil }
     
     func track(at index: Int) -> AudioTrack? {
         guard audioTracks.indices.contains(index) else { return nil }
@@ -50,7 +42,6 @@ struct PlaybackSessionResponse: Codable, Sendable {
 }
 
 // MARK: - MediaProgress Model
-/// Sendable: API response, synced across actors
 struct MediaProgress: Codable, Identifiable, Sendable {
     let id: String
     let libraryItemId: String
@@ -64,21 +55,14 @@ struct MediaProgress: Codable, Identifiable, Sendable {
     let startedAt: Date
     let finishedAt: Date?
     
-    // MARK: - Computed Properties
     var progressPercentage: Double {
         guard duration > 0 else { return 0 }
         return (progress * 100).rounded()
     }
     
-    var remainingTime: Double {
-        max(0, duration - currentTime)
-    }
+    var remainingTime: Double { max(0, duration - currentTime) }
+    var formattedProgress: String { "\(Int(progressPercentage))%" }
     
-    var formattedProgress: String {
-        "\(Int(progressPercentage))%"
-    }
-    
-    // MARK: - Coding Keys
     enum CodingKeys: String, CodingKey {
         case id, libraryItemId, episodeId, duration, progress, currentTime
         case isFinished, hideFromContinueListening, lastUpdate, startedAt, finishedAt
@@ -112,7 +96,6 @@ struct MediaProgress: Codable, Identifiable, Sendable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
         id = try container.decode(String.self, forKey: .id)
         libraryItemId = try container.decode(String.self, forKey: .libraryItemId)
         episodeId = try container.decodeIfPresent(String.self, forKey: .episodeId)
@@ -122,7 +105,6 @@ struct MediaProgress: Codable, Identifiable, Sendable {
         isFinished = try container.decode(Bool.self, forKey: .isFinished)
         hideFromContinueListening = try container.decode(Bool.self, forKey: .hideFromContinueListening)
         
-        // Convert server timestamps (milliseconds) to Date
         let lastUpdateTimestamp = try container.decode(TimeInterval.self, forKey: .lastUpdate)
         lastUpdate = TimestampConverter.dateFromServer(lastUpdateTimestamp)
         
@@ -138,7 +120,6 @@ struct MediaProgress: Codable, Identifiable, Sendable {
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        
         try container.encode(id, forKey: .id)
         try container.encode(libraryItemId, forKey: .libraryItemId)
         try container.encodeIfPresent(episodeId, forKey: .episodeId)
@@ -147,17 +128,13 @@ struct MediaProgress: Codable, Identifiable, Sendable {
         try container.encode(currentTime, forKey: .currentTime)
         try container.encode(isFinished, forKey: .isFinished)
         try container.encode(hideFromContinueListening, forKey: .hideFromContinueListening)
-        
-        // Convert Date to server timestamps (milliseconds)
         try container.encode(TimestampConverter.serverTimestamp(from: lastUpdate), forKey: .lastUpdate)
         try container.encode(TimestampConverter.serverTimestamp(from: startedAt), forKey: .startedAt)
-        
         if let finishedAt = finishedAt {
             try container.encode(TimestampConverter.serverTimestamp(from: finishedAt), forKey: .finishedAt)
         }
     }
     
-    // MARK: - Helper Methods
     func chapterIndex(for book: Book) -> Int {
         book.chapterIndex(at: currentTime)
     }
@@ -174,43 +151,33 @@ struct MediaProgress: Codable, Identifiable, Sendable {
     }
 }
 
-// MARK: - PlaybackState Model (Immutable)
-/// Local playback state - uses value semantics for Swift 6 concurrency
-/// Sendable: Shared between MainActor views and playback actor
+// MARK: - PlaybackState Model
 struct PlaybackState: Codable, Sendable {
     let libraryItemId: String
-    let currentTime: Double
-    let duration: Double
-    let isFinished: Bool
-    let lastUpdate: Date
-    let chapterIndex: Int
+    var currentTime: Double
+    var duration: Double
+    var isFinished: Bool
+    var lastUpdate: Date
+    var chapterIndex: Int
+    var needsSync: Bool // Added to fix compiler error
     
-    // MARK: - Computed Properties
     var progress: Double {
         guard duration > 0 else { return 0 }
         return currentTime / duration
     }
     
-    var bookId: String {
-        libraryItemId
-    }
+    var bookId: String { libraryItemId }
+    var lastPlayed: Date { lastUpdate }
+    var progressPercentage: Double { (progress * 100).rounded() }
     
-    var lastPlayed: Date {
-        lastUpdate
-    }
-    
-    var progressPercentage: Double {
-        (progress * 100).rounded()
-    }
-    
-    // MARK: - Initializers
     init(
         libraryItemId: String,
         currentTime: Double,
         duration: Double,
         isFinished: Bool,
         lastUpdate: Date = Date(),
-        chapterIndex: Int = 0
+        chapterIndex: Int = 0,
+        needsSync: Bool = false
     ) {
         self.libraryItemId = libraryItemId
         self.currentTime = currentTime
@@ -218,6 +185,7 @@ struct PlaybackState: Codable, Sendable {
         self.isFinished = isFinished
         self.lastUpdate = lastUpdate
         self.chapterIndex = chapterIndex
+        self.needsSync = needsSync
     }
     
     init(from mediaProgress: MediaProgress, chapterIndex: Int = 0) {
@@ -227,14 +195,15 @@ struct PlaybackState: Codable, Sendable {
         self.isFinished = mediaProgress.isFinished
         self.lastUpdate = mediaProgress.lastUpdate
         self.chapterIndex = chapterIndex
+        self.needsSync = false
     }
     
-    // MARK: - Update Methods (Returns new instance)
     func updating(
         currentTime: Double? = nil,
         duration: Double? = nil,
         isFinished: Bool? = nil,
-        chapterIndex: Int? = nil
+        chapterIndex: Int? = nil,
+        needsSync: Bool? = nil
     ) -> PlaybackState {
         PlaybackState(
             libraryItemId: libraryItemId,
@@ -242,23 +211,8 @@ struct PlaybackState: Codable, Sendable {
             duration: duration ?? self.duration,
             isFinished: isFinished ?? self.isFinished,
             lastUpdate: Date(),
-            chapterIndex: chapterIndex ?? self.chapterIndex
-        )
-    }
-    
-    func mergingWithServer(_ serverProgress: MediaProgress, book: Book) -> PlaybackState {
-        // Use server data if it's newer
-        guard serverProgress.lastUpdate > self.lastUpdate else {
-            return self
-        }
-        
-        return PlaybackState(
-            libraryItemId: serverProgress.libraryItemId,
-            currentTime: serverProgress.currentTime,
-            duration: serverProgress.duration,
-            isFinished: serverProgress.isFinished,
-            lastUpdate: serverProgress.lastUpdate,
-            chapterIndex: serverProgress.chapterIndex(for: book)
+            chapterIndex: chapterIndex ?? self.chapterIndex,
+            needsSync: needsSync ?? self.needsSync
         )
     }
 }

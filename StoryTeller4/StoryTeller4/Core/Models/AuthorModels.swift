@@ -1,6 +1,5 @@
 import Foundation
 
-// MARK: - Author Model
 struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
@@ -14,25 +13,8 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     let libraryItems: [LibraryItem]?
     let series: [Series]?
     
-    // MARK: - Computed Properties
-    var bookCount: Int {
-        libraryItems?.count ?? numBooks ?? 0
-    }
+    var bookCount: Int { libraryItems?.count ?? numBooks ?? 0 }
     
-    var hasImage: Bool {
-        imagePath != nil && !(imagePath?.isEmpty ?? true)
-    }
-    
-    var displayName: String {
-        name
-    }
-    
-    func imageURL(baseURL: String) -> URL? {
-        guard let imagePath = imagePath else { return nil }
-        return URL(string: "\(baseURL)\(imagePath)")
-    }
-    
-    // MARK: - Initializers
     init(
         id: String,
         name: String,
@@ -59,7 +41,6 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         self.series = series
     }
     
-    // MARK: - Coding Keys
     enum CodingKeys: String, CodingKey {
         case id, name, description, imagePath, libraryId
         case addedAt, updatedAt, numBooks, lastFirst, libraryItems, series
@@ -67,7 +48,6 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)
@@ -78,15 +58,14 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         libraryItems = try container.decodeIfPresent([LibraryItem].self, forKey: .libraryItems)
         series = try container.decodeIfPresent([Series].self, forKey: .series)
         
-        // Handle timestamp conversions (server uses milliseconds)
-        if let addedTimestamp = try? container.decode(Int64.self, forKey: .addedAt) {
-            addedAt = TimestampConverter.dateFromServer(TimeInterval(addedTimestamp))
+        if let added = try? container.decode(Int64.self, forKey: .addedAt) {
+            addedAt = TimestampConverter.dateFromServer(TimeInterval(added))
         } else {
             addedAt = Date()
         }
         
-        if let updatedTimestamp = try? container.decode(Int64.self, forKey: .updatedAt) {
-            updatedAt = TimestampConverter.dateFromServer(TimeInterval(updatedTimestamp))
+        if let updated = try? container.decode(Int64.self, forKey: .updatedAt) {
+            updatedAt = TimestampConverter.dateFromServer(TimeInterval(updated))
         } else {
             updatedAt = Date()
         }
@@ -94,7 +73,6 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(description, forKey: .description)
@@ -107,19 +85,8 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         try container.encodeIfPresent(libraryItems, forKey: .libraryItems)
         try container.encodeIfPresent(series, forKey: .series)
     }
-    
-    // MARK: - Equatable & Hashable
-    static func == (lhs: Author, rhs: Author) -> Bool {
-        lhs.id == rhs.id
-    }
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
 }
 
-// MARK: - Response Wrapper
-/// Sendable: Network response model
 struct AuthorsResponse: Codable, Sendable {
     let authors: [Author]
 }

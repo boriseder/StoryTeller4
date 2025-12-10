@@ -1,11 +1,11 @@
 import Foundation
 
-protocol LibraryServiceProtocol {
+protocol LibraryServiceProtocol: Sendable {
     func fetchLibraries() async throws -> [Library]
     func fetchLibraryStats(libraryId: String) async throws -> Int
 }
 
-class DefaultLibraryService: LibraryServiceProtocol {
+final class DefaultLibraryService: LibraryServiceProtocol, Sendable {
     private let config: APIConfig
     private let networkService: NetworkService
     
@@ -22,7 +22,8 @@ class DefaultLibraryService: LibraryServiceProtocol {
         let request = networkService.createAuthenticatedRequest(url: url, authToken: config.authToken)
         let response: LibrariesResponse = try await networkService.performRequest(request, responseType: LibrariesResponse.self)
         
-        return response.libraries.filter { $0.isAudiobook }
+        // Filter directly by mediaType to avoid property dependency issues if model is out of sync
+        return response.libraries.filter { $0.mediaType == "book" }
     }
     
     func fetchLibraryStats(libraryId: String) async throws -> Int {

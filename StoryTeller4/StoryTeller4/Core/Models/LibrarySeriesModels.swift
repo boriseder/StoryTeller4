@@ -1,7 +1,6 @@
 import Foundation
 
-// MARK: - Series Model (Consolidated)
-/// Unified series model - handles both collapsed series and full series data
+// MARK: - Series Model
 struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
@@ -11,36 +10,14 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     let books: [LibraryItem]?
     let addedAt: Date
     
-    // MARK: - Computed Properties
-    var totalDuration: Double {
-        books?.reduce(0) { $0 + ($1.media.duration ?? 0) } ?? 0
-    }
+    var totalDuration: Double { books?.reduce(0) { $0 + ($1.media.duration ?? 0) } ?? 0 }
+    var bookCount: Int { books?.count ?? numBooks }
+    var firstBook: LibraryItem? { books?.first }
+    var coverPath: String? { firstBook?.media.coverPath }
+    var author: String? { firstBook?.media.metadata.author }
+    var formattedDuration: String { TimeFormatter.formatTimeCompact(totalDuration) }
+    var displayName: String { name }
     
-    var bookCount: Int {
-        books?.count ?? numBooks
-    }
-    
-    var firstBook: LibraryItem? {
-        books?.first
-    }
-    
-    var coverPath: String? {
-        firstBook?.media.coverPath
-    }
-    
-    var author: String? {
-        firstBook?.media.metadata.author
-    }
-    
-    var formattedDuration: String {
-        TimeFormatter.formatTimeCompact(totalDuration)
-    }
-    
-    var displayName: String {
-        name
-    }
-    
-    // MARK: - Initializers
     init(
         id: String,
         name: String,
@@ -59,14 +36,12 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         self.addedAt = addedAt
     }
     
-    // MARK: - Coding Keys
     enum CodingKeys: String, CodingKey {
         case id, name, nameIgnorePrefix, nameIgnorePrefixSort, numBooks, books, addedAt
     }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         nameIgnorePrefix = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefix)
@@ -74,7 +49,6 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         numBooks = try container.decode(Int.self, forKey: .numBooks)
         books = try container.decodeIfPresent([LibraryItem].self, forKey: .books)
         
-        // Handle timestamp conversion
         if let timestamp = try? container.decode(TimeInterval.self, forKey: .addedAt) {
             addedAt = TimestampConverter.dateFromServer(timestamp)
         } else {
@@ -84,7 +58,6 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(nameIgnorePrefix, forKey: .nameIgnorePrefix)
@@ -93,34 +66,9 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         try container.encodeIfPresent(books, forKey: .books)
         try container.encode(TimestampConverter.serverTimestamp(from: addedAt), forKey: .addedAt)
     }
-    
-    // MARK: - Equatable & Hashable
-    static func == (lhs: Series, rhs: Series) -> Bool {
-        lhs.id == rhs.id
-    }
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
-}
-
-// MARK: - Library Models
-struct Library: Codable, Identifiable, Equatable, Hashable, Sendable {
-    let id: String
-    let name: String
-    let mediaType: String?
-    
-    var isAudiobook: Bool {
-        mediaType == "book"
-    }
-    
-    var isPodcast: Bool {
-        mediaType == "podcast"
-    }
 }
 
 // MARK: - LibraryItem Model
-/// Sendable: API response model, passed across concurrency boundaries
 struct LibraryItem: Codable, Identifiable, Sendable, Hashable {
     let id: String
     let media: Media
@@ -130,26 +78,11 @@ struct LibraryItem: Codable, Identifiable, Sendable, Hashable {
     let isInvalid: Bool?
     let collapsedSeries: Series?
     
-    // MARK: - Computed Properties
-    var isCollapsedSeries: Bool {
-        collapsedSeries != nil
-    }
-    
-    var isValid: Bool {
-        !(isMissing ?? false) && !(isInvalid ?? false)
-    }
-    
-    var title: String {
-        collapsedSeries?.name ?? media.metadata.title
-    }
-    
-    var author: String? {
-        collapsedSeries?.author ?? media.metadata.author
-    }
-    
-    var coverPath: String? {
-        collapsedSeries?.coverPath ?? media.coverPath
-    }
+    var isCollapsedSeries: Bool { collapsedSeries != nil }
+    var isValid: Bool { !(isMissing ?? false) && !(isInvalid ?? false) }
+    var title: String { collapsedSeries?.name ?? media.metadata.title }
+    var author: String? { collapsedSeries?.author ?? media.metadata.author }
+    var coverPath: String? { collapsedSeries?.coverPath ?? media.coverPath }
 }
 
 // MARK: - Book Model
@@ -161,18 +94,9 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     let coverPath: String?
     let collapsedSeries: Series?
     
-    // MARK: - Computed Properties
-    var isCollapsedSeries: Bool {
-        collapsedSeries != nil
-    }
-    
-    var displayTitle: String {
-        collapsedSeries?.name ?? title
-    }
-    
-    var seriesBookCount: Int {
-        collapsedSeries?.numBooks ?? 1
-    }
+    var isCollapsedSeries: Bool { collapsedSeries != nil }
+    var displayTitle: String { collapsedSeries?.name ?? title }
+    var seriesBookCount: Int { collapsedSeries?.numBooks ?? 1 }
     
     func coverURL(baseURL: String) -> URL? {
         guard let coverPath = coverPath else { return nil }
@@ -186,19 +110,16 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     func chapterIndex(at time: Double) -> Int {
         chapters.firstIndex { $0.contains(time: time) } ?? max(0, chapters.count - 1)
     }
-    
-    // MARK: - Equatable & Hashable
-    static func == (lhs: Book, rhs: Book) -> Bool {
-        lhs.id == rhs.id
-    }
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
 }
 
-// MARK: - Response Wrappers
-/// Sendable: Network response models
+// MARK: - Library Model
+struct Library: Codable, Identifiable, Equatable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let mediaType: String?
+}
+
+// MARK: - Responses
 struct LibrariesResponse: Codable, Sendable {
     let libraries: [Library]
 }
@@ -212,14 +133,4 @@ struct LibraryItemsResponse: Decodable, Sendable {
 
 struct SeriesResponse: Decodable, Sendable {
     let results: [Series]
-    let total: Int
-    let limit: Int
-    let page: Int
-    let sortBy: String?
-    let sortDesc: Bool
-    let filterBy: String?
-    let mediaType: String?
-    let minified: Bool
-    let collapseseries: Bool?
-    let include: String?
 }

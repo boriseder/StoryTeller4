@@ -70,6 +70,7 @@ final class DefaultDownloadRepository: DownloadRepository {
             manager.isDownloading[book.id] = true
             manager.downloadProgress[book.id] = 0.0
             manager.downloadStage[book.id] = .preparing
+            manager.downloadStatus[book.id] = "Preparing..."
             
             do {
                 try await self.orchestrationService.downloadBook(book, api: api) { bookId, progress, status, stage in
@@ -86,7 +87,7 @@ final class DefaultDownloadRepository: DownloadRepository {
                     manager.isDownloading[book.id] = false
                     manager.downloadProgress[book.id] = 1.0
                     manager.downloadStage[book.id] = .complete
-                    manager.downloadStatus[book.id] = "Download complete!"
+                    manager.downloadStatus[book.id] = "Complete"
                     
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     manager.downloadStatus.removeValue(forKey: book.id)
@@ -211,9 +212,10 @@ final class DefaultDownloadRepository: DownloadRepository {
     }
     
     deinit {
-        let healing = healingService
-        Task {
-            healing.stop()
+        let service = healingService
+        // Fix: Use MainActor task to call methods on main-actor isolated property
+        Task { @MainActor in
+            service.stop()
         }
         for (_, task) in downloadTasks { task.cancel() }
     }

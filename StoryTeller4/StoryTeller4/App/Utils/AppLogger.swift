@@ -12,7 +12,7 @@ enum AppLogger {
             self.category = category
         }
 
-        func write(_ level: String, message: String, osLevel: OSLogType) {
+        nonisolated func write(_ level: String, message: String, osLevel: OSLogType) {
             let timestamp = ISO8601DateFormatter().string(from: Date())
             let line = "[\(timestamp)] \(level) [\(category)] \(message)"
 
@@ -25,10 +25,10 @@ enum AppLogger {
             }
         }
 
-        func debug(_ msg: String) { write("🐞 DEBUG", message: msg, osLevel: .debug) }
-        func info(_ msg: String)  { write("ℹ️ INFO", message: msg, osLevel: .info) }
-        func warn(_ msg: String)  { write("⚠️ WARN", message: msg, osLevel: .default) }
-        func error(_ msg: String) { write("❌ ERROR", message: msg, osLevel: .error) }
+        nonisolated func debug(_ msg: String) { write("🐞 DEBUG", message: msg, osLevel: .debug) }
+        nonisolated func info(_ msg: String)  { write("ℹ️ INFO", message: msg, osLevel: .info) }
+        nonisolated func warn(_ msg: String)  { write("⚠️ WARN", message: msg, osLevel: .default) }
+        nonisolated func error(_ msg: String) { write("❌ ERROR", message: msg, osLevel: .error) }
     }
 
     // MARK: - Categories (using computed properties to avoid init isolation)
