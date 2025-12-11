@@ -1,30 +1,31 @@
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class SettingsViewModel: ObservableObject {
+@Observable
+class SettingsViewModel {
 
     // MARK: - State Objects
-    @Published var serverConfig = ServerConfigState()
-    @Published var storage = StorageState()
+    var serverConfig = ServerConfigState()
+    var storage = StorageState()
 
     // MARK: - Connection State
-    @Published var connectionState: ConnectionState = .initial
-    @Published var isTestingConnection = false
-    @Published var isLoggedIn: Bool = false
+    var connectionState: ConnectionState = .initial
+    var isTestingConnection = false
+    var isLoggedIn: Bool = false
     
     // MARK: - Library State
-    @Published var libraries: [Library] = []
-    @Published var selectedLibraryId: String?
+    var libraries: [Library] = []
+    var selectedLibraryId: String?
     
     // MARK: - UI State
-    @Published var showingClearCacheAlert = false
-    @Published var showingClearDownloadsAlert = false
-    @Published var showingLogoutAlert = false
-    @Published var showingTestResults = false
-    @Published var testResultMessage: String = ""
-    @Published var showingShareSheet = false
-    @Published var shareURL: URL?
+    var showingClearCacheAlert = false
+    var showingClearDownloadsAlert = false
+    var showingLogoutAlert = false
+    var showingTestResults = false
+    var testResultMessage: String = ""
+    var showingShareSheet = false
+    var shareURL: URL?
     
     // MARK: - Dependencies
     private let testConnectionUseCase: TestConnectionUseCaseProtocol
@@ -74,9 +75,7 @@ class SettingsViewModel: ObservableObject {
         Task { @MainActor in
             await loadSavedCredentials()
         }
-
     }
-
 
     // MARK: - Computed Properties
 
@@ -87,7 +86,6 @@ class SettingsViewModel: ObservableObject {
     var canLogin: Bool {
         serverConfig.canLogin && !isLoggedIn
     }
-    
     
     // MARK: - Connection State
     enum ConnectionState: Equatable {
@@ -232,7 +230,6 @@ class SettingsViewModel: ObservableObject {
         }
     }
     
-    
     // MARK: - Storage Management
     
     func calculateStorageInfo() async {
@@ -263,7 +260,6 @@ class SettingsViewModel: ObservableObject {
         downloadManager.deleteAllBooks()
         await calculateStorageInfo()
     }
-    
     
     // MARK: - Library Management
     func saveSelectedLibrary(_ libraryId: String?) {

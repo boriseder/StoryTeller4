@@ -1,15 +1,16 @@
 import Foundation
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class AuthorsViewModel: ObservableObject {
+@Observable
+class AuthorsViewModel {
     
-    // MARK: - Published Properties
-    @Published var authors: [Author] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+    // MARK: - Properties
+    var authors: [Author] = []
+    var isLoading = false
+    var errorMessage: String?
+    var showingErrorAlert = false
     
     // MARK: - Dependencies
     private let fetchAuthorsUseCase: FetchAuthorsUseCaseProtocol
@@ -21,7 +22,6 @@ class AuthorsViewModel: ObservableObject {
         fetchAuthorsUseCase: FetchAuthorsUseCaseProtocol,
         libraryRepository: LibraryRepositoryProtocol,
         api: AudiobookshelfClient
-
     ) {
         self.fetchAuthorsUseCase = fetchAuthorsUseCase
         self.libraryRepository = libraryRepository
@@ -80,15 +80,14 @@ class AuthorsViewModel: ObservableObject {
     }
 }
 
+
 extension AuthorsViewModel {
     @MainActor
     static var placeholder: AuthorsViewModel {
         AuthorsViewModel(
-            fetchAuthorsUseCase: FetchAuthorsUseCase(
-                bookRepository: BookRepository.placeholder
-            ),
+            fetchAuthorsUseCase: FetchAuthorsUseCase(bookRepository: BookRepository.placeholder),
             libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "", authToken: "")
+            api: AudiobookshelfClient(baseURL: "http://placeholder", authToken: "")
         )
     }
 }

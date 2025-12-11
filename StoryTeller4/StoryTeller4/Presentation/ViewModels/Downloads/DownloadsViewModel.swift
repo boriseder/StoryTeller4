@@ -1,73 +1,40 @@
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class DownloadsViewModel: ObservableObject {
-    // MARK: - Published UI State
-    @Published var progressState = DownloadProgressState()
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+@Observable
+class DownloadsViewModel {
+    // MARK: - UI State
+    var downloadedBooks: [Book] = []
+    var availableStorage: Int64 = 0
+    var totalStorageUsed: Int64 = 0
+    var showStorageWarning = false
+    var errorMessage: String?
+    var showingErrorAlert = false
     
-    // For smooth transistions
-    @Published var contentLoaded = false
-
+    // Delete Confirmation
+    var showingDeleteConfirmation = false
+    var showingDeleteAllConfirmation = false
+    var bookToDelete: Book?
+    
+    // MARK: - Constants
+    let storageThreshold: Int64 = 1_000_000_000 // 1GB warning
+    
     // MARK: - Dependencies
-    private let downloadUseCase: DownloadBookUseCase
-    private let playBookUseCase: PlayBookUseCase
-    private let storageMonitor: StorageMonitor
-    
-    // ✅ FIX: Use a wrapper to handle timer invalidation safely on deinit
-    private var storageUpdateTimer: StorageTimerWrapper?
-    
     let downloadManager: DownloadManager
     let player: AudioPlayer
     let api: AudiobookshelfClient
     let appState: AppStateManager
+    private let storageMonitor: StorageMonitor
+    private let playBookUseCase: PlayBookUseCase
     let onBookSelected: () -> Void
-
-    // MARK: - Computed Properties for UI
-    var downloadedBooks: [Book] {
-        downloadManager.downloadedBooks
-    }
     
-    var bookToDelete: Book? {
-        get { progressState.bookToDelete }
-        set { progressState.bookToDelete = newValue }
-    }
-    
-    var showingDeleteConfirmation: Bool {
-        get { progressState.showingDeleteConfirmation }
-        set { progressState.showingDeleteConfirmation = newValue }
-    }
-    
-    var showingDeleteAllConfirmation: Bool {
-        get { progressState.showingDeleteAllConfirmation }
-        set { progressState.showingDeleteAllConfirmation = newValue }
-    }
-    
-    var totalStorageUsed: Int64 {
-        progressState.totalStorageUsed
-    }
-    
-    var availableStorage: Int64 {
-        progressState.availableStorage
-    }
-    
-    var showStorageWarning: Bool {
-        progressState.showStorageWarning
-    }
-    
-    var storageThreshold: Int64 {
-        progressState.storageThreshold
-    }
-    
-    // MARK: - Init with DI
     init(
         downloadManager: DownloadManager,
         player: AudioPlayer,
         api: AudiobookshelfClient,
         appState: AppStateManager,
-        storageMonitor: StorageMonitor = StorageMonitor(),
+        storageMonitor: StorageMonitor,
         onBookSelected: @escaping () -> Void
     ) {
         self.downloadManager = downloadManager
@@ -75,59 +42,28 @@ class DownloadsViewModel: ObservableObject {
         self.api = api
         self.appState = appState
         self.storageMonitor = storageMonitor
-        self.downloadUseCase = DownloadBookUseCase(downloadManager: downloadManager)
-        self.playBookUseCase = PlayBookUseCase()
         self.onBookSelected = onBookSelected
+        self.playBookUseCase = PlayBookUseCase()
         
+        // Initial load
+        refreshData()
+    }
+    
+    func refreshData() {
+        downloadedBooks = downloadManager.downloadedBooks
         updateStorageInfo()
-        setupStorageMonitoring()
     }
     
-    // MARK: - Actions (Delegate to Use Cases)
     func updateStorageInfo() {
-        let info = storageMonitor.getStorageInfo()
-        let warningLevel = storageMonitor.getWarningLevel()
-        
-        let totalUsed = downloadManager.getTotalDownloadSize()
-        
-        progressState.updateStorage(
-            totalUsed: totalUsed,
-            available: info.availableSpace,
-            warningLevel: warningLevel
-        )
-        
-        AppLogger.general.debug("[Downloads] Storage - Used: \(info.usedSpaceFormatted), Available: \(info.availableSpaceFormatted)")
+        totalStorageUsed = downloadManager.getTotalDownloadSize()
+        // FIX: storageMonitor.getStorageInfo() returns the struct containing availableSpace
+        availableStorage = storageMonitor.getStorageInfo().availableSpace
+        showStorageWarning = availableStorage < storageThreshold
     }
     
-    private func setupStorageMonitoring() {
-        // ✅ FIX: Initialize the safe wrapper
-        storageUpdateTimer = StorageTimerWrapper(interval: 300.0) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.updateStorageInfo()
-            }
-        }
-    }
+    // MARK: - Actions
     
-    func getBookStorageSize(_ book: Book) -> String {
-        let size = downloadManager.getBookStorageSize(book.id)
-        return storageMonitor.formatBytes(size)
-    }
-    
-    func formatBytes(_ bytes: Int64) -> String {
-        return storageMonitor.formatBytes(bytes)
-    }
-    
-    // MARK: - Playback
-    func playBook(
-        _ book: Book,
-        autoPlay: Bool = false
-    ) async {
-        guard downloadManager.isBookDownloaded(book.id) else {
-            errorMessage = "Book is not downloaded"
-            showingErrorAlert = true
-            return
-        }
-        
+    func playBook(_ book: Book, autoPlay: Bool = false) async {
         do {
             try await playBookUseCase.execute(
                 book: book,
@@ -142,58 +78,42 @@ class DownloadsViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
-            AppLogger.general.debug("[DownloadsViewModel] Playback error: \(error)")
         }
     }
     
-    // MARK: - Delete Operations
+    // MARK: - Delete Logic
+    
     func requestDeleteBook(_ book: Book) {
-        progressState.requestDelete(book)
+        bookToDelete = book
+        showingDeleteConfirmation = true
     }
     
     func confirmDeleteBook() {
-        guard let book = progressState.bookToDelete else { return }
-        
-        AppLogger.general.debug("[Downloads] Deleting book: \(book.title)")
-        downloadUseCase.delete(bookId: book.id)
-        
-        progressState.confirmDelete()
-        
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            self?.updateStorageInfo()
-        }
+        guard let book = bookToDelete else { return }
+        downloadManager.deleteBook(book.id)
+        bookToDelete = nil
+        showingDeleteConfirmation = false
+        refreshData()
     }
     
     func cancelDelete() {
-        progressState.cancelDelete()
+        bookToDelete = nil
+        showingDeleteConfirmation = false
     }
     
-    func requestDeleteAll() {
-        progressState.requestDeleteAll()
+    // MARK: - Helpers
+    
+    func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
     
-    func confirmDeleteAll() {
-        AppLogger.general.debug("[Downloads] Deleting all downloads")
-        downloadManager.deleteAllBooks()
-        
-        progressState.confirmDeleteAll()
-        
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            self?.updateStorageInfo()
-        }
+    func getBookStorageSize(_ book: Book) -> String {
+        let size = downloadManager.getBookStorageSize(book.id)
+        return formatBytes(size)
     }
-    
-    func cancelDeleteAll() {
-        progressState.cancelDeleteAll()
-    }
-    
-    // ✅ FIX: No deinit needed here.
-    // The storageUpdateTimer property will be released when DownloadsViewModel dies,
-    // triggering StorageTimerWrapper.deinit which safely cancels the dispatch source.
 }
 
+// MARK: - Placeholder
 extension DownloadsViewModel {
     @MainActor
     static var placeholder: DownloadsViewModel {
@@ -205,25 +125,5 @@ extension DownloadsViewModel {
             storageMonitor: StorageMonitor(),
             onBookSelected: {}
         )
-    }
-}
-
-// MARK: - Private Helper
-// ✅ FIX: Use DispatchSourceTimer (Sendable) instead of Timer (non-Sendable)
-private final class StorageTimerWrapper: Sendable {
-    private let timer: DispatchSourceTimer
-    
-    init(interval: TimeInterval, block: @escaping @Sendable () -> Void) {
-        // Use global utility queue for the timer event; the block handles hopping back to MainActor
-        let t = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        t.schedule(deadline: .now() + interval, repeating: interval)
-        t.setEventHandler(handler: block)
-        t.resume()
-        self.timer = t
-    }
-    
-    deinit {
-        // Safe to call from non-isolated deinit because DispatchSourceTimer is thread-safe
-        timer.cancel()
     }
 }

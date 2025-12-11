@@ -1,11 +1,9 @@
 import SwiftUI
 
 struct SeriesView: View {
-    @ObservedObject var viewModel: SeriesViewModel
+    @Bindable var viewModel: SeriesViewModel
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
-    
-    // Removing the environment object seriesViewModel as we pass it directly now
     
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
     
@@ -64,7 +62,6 @@ struct SeriesView: View {
                                         book,
                                         appState: appState,
                                         restoreState: true
-                                        // Optional: autoPlay: autoPlay übergeben, falls playBookSignatur das erlaubt
                                     )
                                 }
                             }

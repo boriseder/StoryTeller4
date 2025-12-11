@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct HomeView: View {
-    @ObservedObject var viewModel: HomeViewModel
+    // FIX: Standard property for @Observable model
+    let viewModel: HomeViewModel
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var dependencies: DependencyContainer
@@ -196,6 +197,7 @@ struct HomeView: View {
         .shadow(color: .black.opacity(0.05), radius: DSCorners.element, x: 0, y: 4)
     }
 }
+
 struct PersonalizedSectionView: View {
     let section: PersonalizedSection
     @ObservedObject var player: AudioPlayer

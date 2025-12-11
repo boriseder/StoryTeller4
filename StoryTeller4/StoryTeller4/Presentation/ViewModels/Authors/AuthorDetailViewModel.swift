@@ -1,22 +1,23 @@
-
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class AuthorDetailViewModel: ObservableObject {
-    @Published var authorBooks: [Book] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+@Observable
+class AuthorDetailViewModel {
+    var authorBooks: [Book] = []
+    var isLoading = false
+    var errorMessage: String?
+    var showingErrorAlert = false
     
     let author: Author
     let includeSeries = true
     let includeBooks = true
     
+    // Callbacks are not stored properties in @Observable usually, but we keep them for logic
+    // Note: Observation ignores non-stored properties or closures automatically
     let onBookSelected: () -> Void
     var onDismiss: (() -> Void)?
 
-    
     // MARK: - Dependencies
     let api: AudiobookshelfClient
     private let downloadManager: DownloadManager
@@ -60,14 +61,11 @@ class AuthorDetailViewModel: ObservableObject {
         }
     }
 
-
-    
     func loadAuthorDetails() async {
         isLoading = true
         errorMessage = nil
         
         do {
-
             guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 errorMessage = "No library selected"
                 showingErrorAlert = true
@@ -75,7 +73,6 @@ class AuthorDetailViewModel: ObservableObject {
             }
 
             defer { isLoading = false }
-
             
             // Fetch author details from the repository
             let author = try await bookRepository.fetchAuthorDetails(
@@ -93,7 +90,7 @@ class AuthorDetailViewModel: ObservableObject {
             // Sort alphabetically by book title
             let sortedBooks = books.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
 
-            // Assign to published property with animation
+            // Assign to property with animation
             withAnimation(.easeInOut(duration: 0.3)) {
                 authorBooks = sortedBooks
             }
@@ -117,7 +114,6 @@ class AuthorDetailViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-        
             guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 errorMessage = "No library selected"
                 showingErrorAlert = true
@@ -165,7 +161,6 @@ class AuthorDetailViewModel: ObservableObject {
         appState: AppStateManager,
         restoreState: Bool = true,
         autoPlay: Bool = false
-
     ) async {
         isLoading = true
         

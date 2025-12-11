@@ -4,7 +4,8 @@ struct AuthorDetailView: View {
     let author: Author
     let onBookSelected: () -> Void
 
-    @StateObject private var viewModel: AuthorDetailViewModel
+    // FIX: Use @State for @Observable view model
+    @State private var viewModel: AuthorDetailViewModel
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
@@ -17,9 +18,10 @@ struct AuthorDetailView: View {
         self.author = author
         self.onBookSelected = onBookSelected
 
-        // Dependencies vom Container holen
         let container = DependencyContainer.shared
-        _viewModel = StateObject(wrappedValue: AuthorDetailViewModel(
+        
+        // FIX: Initialize with State(initialValue:) instead of StateObject
+        _viewModel = State(initialValue: AuthorDetailViewModel(
             bookRepository: container.bookRepository,
             libraryRepository: container.libraryRepository,
             api: container.apiClient!,
@@ -88,7 +90,6 @@ struct AuthorDetailView: View {
     private var authorHeaderView: some View {
         
         HStack(alignment: .center) {
-            // Author Image
             AuthorImageView(
                 author: author,
                 api: DependencyContainer.shared.apiClient,

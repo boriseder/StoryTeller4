@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct AuthorsView: View {
-    @ObservedObject var viewModel: AuthorsViewModel
+    // Using simple 'let' because AuthorsViewModel is now @Observable
+    let viewModel: AuthorsViewModel
+    
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var appState: AppStateManager
     
@@ -21,7 +23,8 @@ struct AuthorsView: View {
                         Button {
                             selectedAuthor = author
                         } label: {
-                            AuthorRow(author: author)
+                            // CLEAN CODE: Pass dependencies down instead of using Singleton
+                            AuthorRow(author: author, api: viewModel.api)
                         }
                         .buttonStyle(.plain)
                     }
@@ -56,8 +59,10 @@ struct AuthorsView: View {
     }
 }
 
+// MARK: - Author Row Component
 struct AuthorRow: View {
     let author: Author
+    let api: AudiobookshelfClient?
  
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var appState: AppStateManager
@@ -65,12 +70,14 @@ struct AuthorRow: View {
     var body: some View {
         HStack(spacing: DSLayout.contentGap) {
             
+            // Author Image
             AuthorImageView(
                 author: author,
-                api: DependencyContainer.shared.apiClient,
+                api: api,
                 size: DSLayout.smallAvatar
             )
             
+            // Author Info
             VStack(alignment: .leading, spacing: DSLayout.elementGap) {
                 Text(author.name)
                     .font(DSText.detail)

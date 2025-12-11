@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @StateObject private var viewModel = DependencyContainer.shared.makeSettingsViewModel()
+    // Migration: Use @State instead of @StateObject for @Observable models
+    @State private var viewModel = DependencyContainer.shared.makeSettingsViewModel()
     @EnvironmentObject var theme: ThemeManager
 
     @State private var selectedColor: Color = .blue
@@ -47,8 +48,11 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: Theme Settings
+    
     private var themeSection: some View {
             Section {
+                // Background Style
                 Picker("Select Theme", selection: $theme.backgroundStyle) {
                     ForEach(UserBackgroundStyle.allCases, id: \.self) { option in
                         Text(option.rawValue.capitalized).tag(option)
@@ -86,8 +90,12 @@ struct SettingsView: View {
             }
     }
     
+    
+    // MARK:  Playback Settings
+
     private var playbackSection: some View {
         Section {
+            // Background Style
                 Toggle("Fullscreen-Player on Play", isOn: $openFullscreenPlayer)
                 Toggle("Enable Autoplay on Book Tap", isOn: $autoPlayOnBookTap)
 
@@ -97,6 +105,9 @@ struct SettingsView: View {
         }
 
     }
+    
+    
+    // MARK: - Libraries Section
     
     private var librariesSection: some View {
         Section {
@@ -141,6 +152,8 @@ struct SettingsView: View {
         } footer: { }
     }
 
+    // MARK: - Server Section
+    
     private var serverSection: some View {
         Section {
             Picker("Protocol", selection: $viewModel.serverConfig.scheme) {
@@ -189,6 +202,8 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: - Connection Section
+    
     private var connectionSection: some View {
         Section {
             if viewModel.isTestingConnection {
@@ -224,6 +239,9 @@ struct SettingsView: View {
         }
     }
 
+    
+    // MARK: - Credentials Section
+
     private var credentialsSection: some View {
         Section {
             if viewModel.isLoggedIn {
@@ -257,6 +275,7 @@ struct SettingsView: View {
                 }
                 .disabled(!viewModel.canLogin)
                 
+                // NEW: Show loading state after login
                 if viewModel.isTestingConnection {
                     HStack {
                         ProgressView()
@@ -280,6 +299,9 @@ struct SettingsView: View {
             }
         }
     }
+    
+    
+    // MARK: - Storage Section
     
     private var storageSection: some View {
         Section {
@@ -362,6 +384,9 @@ struct SettingsView: View {
         }
     }
     
+    
+    // MARK: - About Section
+    
     private var aboutSection: some View {
         Section {
             HStack {
@@ -404,6 +429,8 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: - Advanced Section
+    
     private var advancedSection: some View {
         Group {
             
@@ -418,6 +445,8 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: - Helper Methods
+    
     private func getAppVersion() -> String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
     }
@@ -427,12 +456,16 @@ struct SettingsView: View {
     }
 }
 
+// Helper struct for Alerts
 private struct AlertsModifier: ViewModifier {
-    @ObservedObject var viewModel: SettingsViewModel
+    var viewModel: SettingsViewModel
     
     func body(content: Content) -> some View {
+        // Create a Bindable proxy for the observable object to create bindings
+        @Bindable var vm = viewModel
+        
         content
-            .alert("Clear All Cache?", isPresented: $viewModel.showingClearCacheAlert) {
+            .alert("Clear All Cache?", isPresented: $vm.showingClearCacheAlert) {
                 Button("Cancel", role: .cancel) {}
                 Button("Clear \(viewModel.storage.totalCacheSize)", role: .destructive) {
                     Task { await viewModel.clearAllCache() }
@@ -440,7 +473,7 @@ private struct AlertsModifier: ViewModifier {
             } message: {
                 Text("This will clear all cached data including cover images and metadata. Downloaded books are not affected.")
             }
-            .alert("Delete All Downloads?", isPresented: $viewModel.showingClearDownloadsAlert) {
+            .alert("Delete All Downloads?", isPresented: $vm.showingClearDownloadsAlert) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete All", role: .destructive) {
                     Task { await viewModel.clearAllDownloads() }
@@ -448,7 +481,7 @@ private struct AlertsModifier: ViewModifier {
             } message: {
                 Text("This will permanently delete all \(viewModel.storage.downloadedBooksCount) downloaded books. You can re-download them anytime when online.")
             }
-            .alert("Logout?", isPresented: $viewModel.showingLogoutAlert) {
+            .alert("Logout?", isPresented: $vm.showingLogoutAlert) {
                 Button("Cancel", role: .cancel) {}
                 Button("Logout", role: .destructive) {
                     viewModel.logout()
@@ -456,7 +489,7 @@ private struct AlertsModifier: ViewModifier {
             } message: {
                 Text("You will need to enter your credentials again to reconnect.")
             }
-            .alert("Connection Test", isPresented: $viewModel.showingTestResults) {
+            .alert("Connection Test", isPresented: $vm.showingTestResults) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.testResultMessage)

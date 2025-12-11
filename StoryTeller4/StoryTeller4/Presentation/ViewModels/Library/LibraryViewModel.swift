@@ -1,24 +1,25 @@
+import Foundation
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class LibraryViewModel: ObservableObject {
-    // MARK: - Published UI State
-    @Published var books: [Book] = []
-    @Published var filterState = LibraryFilterState()
-    @Published var libraryName: String = "Library"
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+@Observable
+class LibraryViewModel {
+    // MARK: - Published Properties
+    var books: [Book] = []
+    var filterState = LibraryFilterState()
+    var isLoading = false
+    var errorMessage: String?
+    var showingErrorAlert = false
+    
+    // FIX: Store the current library locally since Repository access is async
+    var currentLibrary: Library?
     
     // For smooth transistions
-    @Published var contentLoaded = false
-   
-    private var hasLoadedOnce = false
-
-    // MARK: - Dependencies (Use Cases & Repositories)
+    var contentLoaded = false
+    
+    // MARK: - Dependencies
     private let fetchBooksUseCase: FetchBooksUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCase
     private let downloadRepository: DownloadRepository
     private let libraryRepository: LibraryRepositoryProtocol
     
@@ -28,37 +29,26 @@ class LibraryViewModel: ObservableObject {
     let appState: AppStateManager
     let onBookSelected: () -> Void
     
-    // MARK: - Computed Properties for UI
-    var filteredAndSortedBooks: [Book] {
-        let searchFiltered = books.filter { filterState.matchesSearchFilter($0) }
-        
-        let downloadFiltered = searchFiltered.filter { book in
-            filterState.matchesDownloadFilter(
-                book,
-                isDownloaded: downloadRepository.getDownloadStatus(for: book.id).isDownloaded
-            )
-        }
-        
-        return filterState.applySorting(to: downloadFiltered)
+    // MARK: - Computed Properties
+    var libraryName: String {
+        currentLibrary?.name ?? "Library"
     }
     
-    var downloadedBooksCount: Int {
-        books.filter { downloadRepository.getDownloadStatus(for: $0.id).isDownloaded }.count
+    var filteredAndSortedBooks: [Book] {
+        // FIX: Now matches() exists on LibraryFilterState
+        let filtered = books.filter { filterState.matches(book: $0, downloadManager: downloadManager) }
+        return filterState.applySorting(to: filtered)
     }
     
     var totalBooksCount: Int {
         books.count
     }
     
-    var seriesCount: Int {
-        books.filter { $0.isCollapsedSeries }.count
+    var downloadedBooksCount: Int {
+        downloadManager.downloadedBooks.count
     }
     
-    var individualBooksCount: Int {
-        books.filter { !$0.isCollapsedSeries }.count
-    }
-    
-    // MARK: - Init with DI
+    // MARK: - Init
     init(
         fetchBooksUseCase: FetchBooksUseCaseProtocol,
         downloadRepository: DownloadRepository,
@@ -70,7 +60,6 @@ class LibraryViewModel: ObservableObject {
         onBookSelected: @escaping () -> Void
     ) {
         self.fetchBooksUseCase = fetchBooksUseCase
-        self.playBookUseCase = PlayBookUseCase()
         self.downloadRepository = downloadRepository
         self.libraryRepository = libraryRepository
         self.api = api
@@ -78,20 +67,13 @@ class LibraryViewModel: ObservableObject {
         self.player = player
         self.appState = appState
         self.onBookSelected = onBookSelected
-        
-        filterState.loadFromDefaults()
-        
-        Task {
-            await loadBooksIfNeeded()
-        }
-
     }
     
-    // MARK: - Actions (Delegate to Use Cases)
-    /// Load books only if not already loaded
+    // MARK: - Actions
     func loadBooksIfNeeded() async {
-        guard !hasLoadedOnce && !isLoading else { return }
-        await loadBooks()
+        if books.isEmpty {
+            await loadBooks()
+        }
     }
     
     func loadBooks() async {
@@ -99,34 +81,38 @@ class LibraryViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            guard let library = try await libraryRepository.getSelectedLibrary() else {
+            guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 books = []
+                currentLibrary = nil
                 isLoading = false
                 return
             }
             
+            // Update local state
+            self.currentLibrary = selectedLibrary
+            
             // Try network fetch
             let fetchedBooks = try await fetchBooksUseCase.execute(
-                libraryId: library.id,
-                collapseSeries: filterState.showSeriesGrouped  // ← DIFFERENT: collapseSeries param
+                libraryId: selectedLibrary.id,
+                collapseSeries: false
             )
             
             withAnimation(.easeInOut) {
                 books = fetchedBooks
             }
             
+            // Preload covers for visible books (first 20)
             CoverPreloadHelpers.preloadIfNeeded(
-                books: fetchedBooks,
+                books: Array(fetchedBooks.prefix(20)),
                 api: api,
-                downloadManager: downloadManager,
-                limit: 10
+                downloadManager: downloadManager
             )
             
         } catch let error as RepositoryError {
-                handleRepositoryError(error)
+            handleRepositoryError(error)
         } catch {
-                errorMessage = error.localizedDescription
-                showingErrorAlert = true
+            errorMessage = error.localizedDescription
+            showingErrorAlert = true
         }
         
         isLoading = false
@@ -136,12 +122,11 @@ class LibraryViewModel: ObservableObject {
         _ book: Book,
         appState: AppStateManager,
         restoreState: Bool = true,
-        autoPlay: Bool = false,
+        autoPlay: Bool = false
     ) async {
-        isLoading = true
-        
         do {
-            try await playBookUseCase.execute(
+            let playUseCase = PlayBookUseCase()
+            try await playUseCase.execute(
                 book: book,
                 api: api,
                 player: player,
@@ -151,98 +136,46 @@ class LibraryViewModel: ObservableObject {
                 autoPlay: autoPlay
             )
             onBookSelected()
+            
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
         }
-        
-        isLoading = false
     }
     
-    // MARK: - Filter Management (UI State Changes)
-    func toggleSeriesMode() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            filterState.showSeriesGrouped.toggle()
-        }
-        
-        filterState.saveToDefaults()
-        
-        Task {
-            await loadBooks()
-        }
-    }
-    
+    // MARK: - Filters
     func toggleDownloadFilter() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation {
             filterState.showDownloadedOnly.toggle()
         }
-        filterState.saveToDefaults()
+    }
+    
+    func toggleSeriesMode() {
+        withAnimation {
+            filterState.showSeriesGrouped.toggle()
+        }
     }
     
     func resetFilters() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            filterState.reset()
-        }
-        
-        Task {
-            await loadBooks()
-        }
+        filterState.reset()
     }
     
-    // MARK: - Error Handling
     private func handleRepositoryError(_ error: RepositoryError) {
-        switch error {
-        case .networkError(let urlError as URLError):
-            switch urlError.code {
-            case .timedOut:
-                errorMessage = "Connection timed out. Your library might be very large. Try again or check your network."
-            case .notConnectedToInternet:
-                errorMessage = "No internet connection. Please check your network settings."
-            case .cannotFindHost:
-                errorMessage = "Cannot reach server. Please verify your server address in settings."
-            default:
-                errorMessage = "Network error: \(urlError.localizedDescription)"
-            }
-            
-        case .decodingError:
-            errorMessage = """
-            Failed to load library data.
-            
-            Some books couldn't be loaded due to data format issues.
-            Please contact your Audiobookshelf administrator.
-            """
-            
-        case .notFound:
-            errorMessage = "Library not found"
-            
-        case .invalidData:
-            errorMessage = "Invalid library data"
-            
-        case .unauthorized:
-            errorMessage = "Authentication required. Please login again."
-            
-        case .serverError(let code):
-            errorMessage = "Server error (code: \(code)). Please try again later."
-            
-        default:
-            errorMessage = error.localizedDescription
-        }
-        
+        errorMessage = error.localizedDescription
         showingErrorAlert = true
         AppLogger.general.debug("[LibraryViewModel] Repository error: \(error)")
     }
 }
 
+// MARK: - Placeholder
 extension LibraryViewModel {
     @MainActor
     static var placeholder: LibraryViewModel {
         LibraryViewModel(
-            fetchBooksUseCase: FetchBooksUseCase(
-                bookRepository: BookRepository.placeholder
-            ),
-            downloadRepository: DefaultDownloadRepository.placeholder,  // ✅ Use concrete type
+            fetchBooksUseCase: FetchBooksUseCase(bookRepository: BookRepository.placeholder),
+            downloadRepository: DefaultDownloadRepository.placeholder,
             libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "", authToken: ""),
+            api: AudiobookshelfClient(baseURL: "http://placeholder", authToken: ""),
             downloadManager: DownloadManager(),
             player: AudioPlayer(),
             appState: AppStateManager.shared,

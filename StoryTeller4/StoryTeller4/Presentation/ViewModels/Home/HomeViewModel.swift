@@ -1,21 +1,22 @@
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class HomeViewModel: ObservableObject {
-    // MARK: - Published UI State
-    @Published var personalizedSections: [PersonalizedSection] = []
-    @Published var libraryName: String = "Personalized"
-    @Published var totalBooksInLibrary: Int = 0
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+@Observable
+class HomeViewModel {
+    // MARK: - UI State
+    var personalizedSections: [PersonalizedSection] = []
+    var libraryName: String = "Personalized"
+    var totalBooksInLibrary: Int = 0
+    var isLoading = false
+    var errorMessage: String?
+    var showingErrorAlert = false
 
     // For smooth transistions
-    @Published var contentLoaded = false
-    @Published var sectionsLoaded = false
+    var contentLoaded = false
+    var sectionsLoaded = false
     
-    // MARK: - Dependencies (Use Cases & Repositories)
+    // MARK: - Dependencies
     private let fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCaseProtocol
     private let playBookUseCase: PlayBookUseCase
     private let downloadRepository: DownloadRepository
@@ -28,24 +29,21 @@ class HomeViewModel: ObservableObject {
     let appState: AppStateManager
     let onBookSelected: () -> Void
 
-    // MARK: - Computed Properties for UI
+    // MARK: - Computed Properties
     var totalItemsCount: Int {
         totalBooksInLibrary
     }
     
     var downloadedCount: Int {
-        //let allBooks = getAllBooksFromSections()
-        // we do not want the number of downloaded books in personalized sections but all downloaded books
-        // return allBooks.filter { downloadRepository.getDownloadStatus(for: $0.id).isDownloaded }.count
-        return downloadRepository.getDownloadedBooks().count
+        downloadRepository.getDownloadedBooks().count
     }
 
-    // MARK: - Init with DI
+    // MARK: - Init
     init(
         fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCaseProtocol,
         downloadRepository: DownloadRepository,
         libraryRepository: LibraryRepositoryProtocol,
-        bookRepository: BookRepositoryProtocol,  // ADD THIS
+        bookRepository: BookRepositoryProtocol,
         api: AudiobookshelfClient,
         downloadManager: DownloadManager,
         player: AudioPlayer,
@@ -56,7 +54,7 @@ class HomeViewModel: ObservableObject {
         self.playBookUseCase = PlayBookUseCase()
         self.downloadRepository = downloadRepository
         self.libraryRepository = libraryRepository
-        self.bookRepository = bookRepository  // ADD THIS
+        self.bookRepository = bookRepository
         self.api = api
         self.downloadManager = downloadManager
         self.player = player
@@ -64,12 +62,9 @@ class HomeViewModel: ObservableObject {
         self.onBookSelected = onBookSelected
     }
      
-    // MARK: - Actions (Delegate to Use Cases)
+    // MARK: - Actions
     func loadPersonalizedSectionsIfNeeded() async {
-        //only load data if network is actually working
-        guard appState.isServerReachable else {
-            return
-        }
+        guard appState.isServerReachable else { return }
 
         if personalizedSections.isEmpty {
             await loadPersonalizedSections()
@@ -77,7 +72,6 @@ class HomeViewModel: ObservableObject {
     }
     
     func loadPersonalizedSections() async {
-        
         isLoading = true
         errorMessage = nil
         
@@ -89,10 +83,7 @@ class HomeViewModel: ObservableObject {
                 return
             }
                         
-            // Fetch sections and stats in parallel
-            async let sectionsTask = fetchPersonalizedSectionsUseCase.execute(
-                libraryId: selectedLibrary.id
-            )
+            async let sectionsTask = fetchPersonalizedSectionsUseCase.execute(libraryId: selectedLibrary.id)
             async let statsTask = api.libraries.fetchLibraryStats(libraryId: selectedLibrary.id)
             
             let (fetchedSections, totalBooks) = try await (sectionsTask, statsTask)
@@ -110,7 +101,6 @@ class HomeViewModel: ObservableObject {
             )
             
         } catch let error as RepositoryError {
-            // On error, check if we have cached data from previous successful load
                 errorMessage = error.localizedDescription
                 showingErrorAlert = true
                 AppLogger.general.debug("[HomeViewModel] Repository error: \(error)")
@@ -127,7 +117,6 @@ class HomeViewModel: ObservableObject {
         appState: AppStateManager,
         restoreState: Bool = true,
         autoPlay: Bool = false
-
     ) async {
         isLoading = true
         
@@ -150,67 +139,6 @@ class HomeViewModel: ObservableObject {
         isLoading = false
     }
     
-    func loadSeriesBooks(_ series: Series, appState: AppStateManager) async {
-        AppLogger.general.debug("Loading series: \(series.name)")
-        
-        do {
-            guard let library = try await libraryRepository.getSelectedLibrary() else {
-                errorMessage = "No library selected"
-                showingErrorAlert = true
-                return
-            }
-            
-           // let bookRepository = BookRepository(api: api, cache: BookCache())
-            let seriesBooks = try await bookRepository.fetchSeriesBooks(
-                libraryId: library.id,
-                seriesId: series.id
-            )
-
-            if let firstBook = seriesBooks.first {
-                await playBook(firstBook, appState: appState)
-            }
-            
-        } catch {
-            errorMessage = "Could not load series '\(series.name)': \(error.localizedDescription)"
-            showingErrorAlert = true
-            AppLogger.general.debug("Error loading series: \(error)")
-        }
-    }
-   /*
-    func searchBooksByAuthor(_ authorName: String, appState: AppStateManager) async {
-        AppLogger.general.debug("Searching books by author: \(authorName)")
-        
-        do {
-            guard let library = try await libraryRepository.getSelectedLibrary() else {
-                errorMessage = "No library selected"
-                showingErrorAlert = true
-                return
-            }
-            
-            //let bookRepository = BookRepository(api: api, cache: BookCache())
-            let allBooks = try await bookRepository.fetchBooks(
-                libraryId: library.id,
-                collapseSeries: false
-            )
-            
-            let authorBooks = allBooks.filter { book in
-                book.author?.localizedCaseInsensitiveContains(authorName) == true
-            }
-            
-            if let firstBook = authorBooks.first {
-                await playBook(firstBook, appState: appState)
-            } else {
-                errorMessage = "No books found by '\(authorName)'"
-                showingErrorAlert = true
-            }
-            
-        } catch {
-            errorMessage = "Could not search books by '\(authorName)': \(error.localizedDescription)"
-            showingErrorAlert = true
-            AppLogger.general.debug("Error searching books by author: \(error)")
-        }
-    }
-    */
     // MARK: - Private Helpers
     private func getAllBooksFromSections() -> [Book] {
         var allBooks: [Book] = []
@@ -222,19 +150,17 @@ class HomeViewModel: ObservableObject {
             
             allBooks.append(contentsOf: sectionBooks)
         }
-        
         return allBooks
     }
 }
 
+// MARK: - Placeholder
 extension HomeViewModel {
     @MainActor
     static var placeholder: HomeViewModel {
         HomeViewModel(
-            fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCase(
-                bookRepository: BookRepository.placeholder
-            ),
-            downloadRepository: DefaultDownloadRepository.placeholder,  // ✅ Use concrete type
+            fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCase(bookRepository: BookRepository.placeholder),
+            downloadRepository: DefaultDownloadRepository.placeholder,
             libraryRepository: LibraryRepository.placeholder,
             bookRepository: BookRepository.placeholder,
             api: AudiobookshelfClient(baseURL: "", authToken: ""),

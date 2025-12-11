@@ -1,13 +1,13 @@
-
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class SeriesDetailViewModel: ObservableObject {
-    @Published var seriesBooks: [Book] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+@Observable
+class SeriesDetailViewModel {
+    var seriesBooks: [Book] = []
+    var isLoading = false
+    var errorMessage: String?
+    var showingErrorAlert = false
     
     let seriesId: String
     let seriesName: String

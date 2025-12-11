@@ -1,9 +1,10 @@
 import Foundation
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class SeriesSectionViewModel: ObservableObject {
+@Observable
+class SeriesSectionViewModel {
     let series: Series
     let api: AudiobookshelfClient
     let onBookSelected: (Book) -> Void
@@ -12,9 +13,9 @@ class SeriesSectionViewModel: ObservableObject {
     var player: AudioPlayer { container.player }
     var downloadManager: DownloadManager { container.downloadManager }
     
-    @Published var books: [Book] = []
-    @Published var isLoading = false
-    @Published var error: Error?
+    var books: [Book] = []
+    var isLoading = false
+    var error: Error?
     
     init(
         series: Series,
@@ -27,6 +28,7 @@ class SeriesSectionViewModel: ObservableObject {
         self.onBookSelected = onBookSelected
         self.container = container
         
+        // Handle optional books array properly
         if let seriesBooks = series.books {
             self.books = seriesBooks.compactMap { api.converter.convertLibraryItemToBook($0) }
         } else {

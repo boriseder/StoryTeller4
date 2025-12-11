@@ -24,6 +24,24 @@ struct LibraryFilterState {
         return isDownloaded
     }
     
+    // FIX: Added the composite matching function required by LibraryViewModel
+    func matches(book: Book, downloadManager: DownloadManager) -> Bool {
+        // 1. Search Filter
+        if !matchesSearchFilter(book) {
+            return false
+        }
+        
+        // 2. Download Filter
+        if showDownloadedOnly {
+            let isDownloaded = downloadManager.isBookDownloaded(book.id)
+            if !matchesDownloadFilter(book, isDownloaded: isDownloaded) {
+                return false
+            }
+        }
+        
+        return true
+    }
+    
     func applySorting(to books: [Book]) -> [Book] {
         let sorted = books.sorted { book1, book2 in
             switch selectedSortOption {
@@ -64,4 +82,3 @@ struct LibraryFilterState {
         saveToDefaults()
     }
 }
-

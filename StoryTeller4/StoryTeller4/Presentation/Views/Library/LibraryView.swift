@@ -2,8 +2,8 @@ import SwiftUI
 import Combine
 
 struct LibraryView: View {
-    
-    @ObservedObject var viewModel: LibraryViewModel
+    // FIX: Standard property for @Observable model
+    var viewModel: LibraryViewModel
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var dependencies: DependencyContainer
@@ -14,7 +14,6 @@ struct LibraryView: View {
 
     @Binding var columnVisibility: NavigationSplitViewVisibility
 
-    // Workaround to hide nodata at start of app
     @State private var showEmptyState = false
 
     @AppStorage("open_fullscreen_player") private var playerMode: Bool = false
@@ -25,8 +24,10 @@ struct LibraryView: View {
     }
     
     var body: some View {
+        // Create binding proxy for search text binding
+        @Bindable var vm = viewModel
+        
         ZStack {
-            
             if theme.backgroundStyle == .dynamic {
                 Color.accent.ignoresSafeArea()
             }
@@ -40,7 +41,7 @@ struct LibraryView: View {
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
         .searchable(
-            text: $viewModel.filterState.searchText,
+            text: $vm.filterState.searchText,
             placement: .automatic,
             prompt: "Search books..."
         )
@@ -89,6 +90,8 @@ struct LibraryView: View {
         .onChange(of: viewModel.filteredAndSortedBooks.count) {
             updateBookCardViewModels()
         }
+        // Legacy Combine listener for DownloadManager - can stay for now or be refactored
+        // Since we didn't migrate BookCardViewModel yet, we keep this.
         .onReceive(viewModel.player.$currentTime.throttle(for: .seconds(2), scheduler: RunLoop.main, latest: true)) { _ in
             updateCurrentBookOnly()
         }
@@ -147,8 +150,6 @@ struct LibraryView: View {
         }
     }
     
-    // MARK: - Update Logic (unchanged)
-    
     private func updateBookCardViewModels() {
         let books = viewModel.filteredAndSortedBooks
         Task { @MainActor in
@@ -176,8 +177,6 @@ struct LibraryView: View {
         }
     }
     
-    // MARK: - Actions (unchanged)
-    
     private func handleBookTap(_ book: Book) {
         if book.isCollapsedSeries {
             selectedSeries = book
@@ -201,8 +200,6 @@ struct LibraryView: View {
     private func deleteDownload(_ book: Book) {
         viewModel.downloadManager.deleteBook(book.id)
     }
-    
-    // MARK: - Toolbar Components (unchanged)
     
     private var filterAndSortMenu: some View {
         Menu {
@@ -302,6 +299,7 @@ struct LibraryView: View {
         }
     }
 }
+
 struct FilterStatusBannerView: View {
     let count: Int
     let totalDownloaded: Int

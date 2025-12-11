@@ -7,14 +7,12 @@ struct ContentView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var dependencies: DependencyContainer
     
-    // MARK: - Hoisted ViewModels (State Management)
-    // These live here to ensure Sidebar and Detail views share the same state,
-    // and to persist state when switching tabs.
-    @StateObject private var homeViewModel: HomeViewModel
-    @StateObject private var libraryViewModel: LibraryViewModel
-    @StateObject private var seriesViewModel: SeriesViewModel
-    @StateObject private var authorsViewModel: AuthorsViewModel
-    @StateObject private var downloadsViewModel: DownloadsViewModel
+    // MARK: - Hoisted ViewModels (All migrated to @Observable)
+    @State private var homeViewModel: HomeViewModel
+    @State private var libraryViewModel: LibraryViewModel
+    @State private var seriesViewModel: SeriesViewModel
+    @State private var authorsViewModel: AuthorsViewModel
+    @State private var downloadsViewModel: DownloadsViewModel
     
     @State private var selectedTab: TabIndex = .home
     @State private var bookCount = 0
@@ -28,14 +26,15 @@ struct ContentView: View {
     
     let api = DependencyContainer.shared.apiClient
     
-    // Custom Init to create ViewModels using the Factory
     init() {
         let container = DependencyContainer.shared
-        _homeViewModel = StateObject(wrappedValue: container.makeHomeViewModel())
-        _libraryViewModel = StateObject(wrappedValue: container.makeLibraryViewModel())
-        _seriesViewModel = StateObject(wrappedValue: container.makeSeriesViewModel())
-        _authorsViewModel = StateObject(wrappedValue: container.makeAuthorsViewModel())
-        _downloadsViewModel = StateObject(wrappedValue: container.makeDownloadsViewModel())
+        
+        // MIGRATION COMPLETE: All ViewModels initialized via State(initialValue:)
+        _homeViewModel = State(initialValue: container.makeHomeViewModel())
+        _libraryViewModel = State(initialValue: container.makeLibraryViewModel())
+        _seriesViewModel = State(initialValue: container.makeSeriesViewModel())
+        _authorsViewModel = State(initialValue: container.makeAuthorsViewModel())
+        _downloadsViewModel = State(initialValue: container.makeDownloadsViewModel())
     }
     
     var body: some View {
@@ -99,7 +98,7 @@ struct ContentView: View {
                 SettingsView()
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
+                        ToolbarItem(placement: .navigationBarLeading) {
                             Button("Done") {
                                 appState.showingSettings = false
                                 Task { setupApp() }
@@ -214,10 +213,8 @@ struct ContentView: View {
             
             // Filter & Sort Section (for Library/Series)
             if appState.selectedTab == .library {
-                // Pass the specific instance of LibraryViewModel
                 LibrarySidebarFilters(viewModel: libraryViewModel)
             } else if appState.selectedTab == .series {
-                // Pass the specific instance of SeriesViewModel
                 SeriesSidebarSort(viewModel: seriesViewModel)
             }
             
@@ -229,7 +226,6 @@ struct ContentView: View {
                             .foregroundColor(.blue)
                         Text("Books")
                         Spacer()
-                        // Use the local viewModel instance
                         Text("\(libraryViewModel.totalBooksCount)")
                             .foregroundColor(.secondary)
                     }
@@ -375,16 +371,13 @@ struct ContentView: View {
                 return
             }
             
-            // CLEAN CODE: Removed the 'while downloadManager.repository == nil' loop.
-            // The Container now guarantees initialization.
-            
             self.bookCount = await downloadManager.preloadDownloadedBooksCount()
             
             appState.loadingState = .credentialsFoundValidating
             
             do {
                 let token = try KeychainService.shared.getToken(for: username)
-            
+                
                 dependencies.configureAPI(baseURL: baseURL, token: token)
                 
                 let client = dependencies.apiClient!
@@ -509,7 +502,8 @@ struct ContentView: View {
 
 // MARK: - Library Sidebar Filters
 struct LibrarySidebarFilters: View {
-    @ObservedObject var viewModel: LibraryViewModel
+    // FIX: Use @Bindable for new @Observable view model
+    @Bindable var viewModel: LibraryViewModel
     
     var body: some View {
         Section("Filters & Sorting") {
@@ -595,7 +589,7 @@ struct LibrarySidebarFilters: View {
 
 // MARK: - Series Sidebar Sort
 struct SeriesSidebarSort: View {
-    @ObservedObject var viewModel: SeriesViewModel
+    @Bindable var viewModel: SeriesViewModel
     
     var body: some View {
         Section("Sorting") {

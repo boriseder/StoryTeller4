@@ -1,11 +1,14 @@
 import SwiftUI
 
 struct SeriesSectionView: View {
-    @StateObject private var viewModel: SeriesSectionViewModel
+    // FIX: Use @State for @Observable view model
+    @State private var viewModel: SeriesSectionViewModel
     @EnvironmentObject private var dependencies: DependencyContainer
 
+    // NOTE: Preserving the correct closure signature (Book) -> Void from previous fix
     init(series: Series, api: AudiobookshelfClient, onBookSelected: @escaping (Book) -> Void) {
-        self._viewModel = StateObject(wrappedValue: SeriesSectionViewModel(
+        // FIX: Initialize with State(initialValue:)
+        self._viewModel = State(initialValue: SeriesSectionViewModel(
             series: series,
             api: api,
             onBookSelected: onBookSelected,
@@ -26,6 +29,7 @@ struct SeriesSectionView: View {
             }
         }
         .task {
+            // Update container reference
             viewModel.container = dependencies
         }
     }

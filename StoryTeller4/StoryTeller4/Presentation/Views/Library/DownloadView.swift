@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct DownloadsView: View {
-    @ObservedObject var viewModel: DownloadsViewModel
+    // FIX: Standard property for @Observable model
+    let viewModel: DownloadsViewModel
     @EnvironmentObject private var appState: AppStateManager
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var dependencies: DependencyContainer
@@ -12,6 +13,8 @@ struct DownloadsView: View {
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
 
     var body: some View {
+        @Bindable var vm = viewModel
+        
         ZStack {
             if theme.backgroundStyle == .dynamic {
                 Color.accent.ignoresSafeArea()
@@ -31,7 +34,7 @@ struct DownloadsView: View {
                 toolbarButtons
             }
         }
-        .alert("Delete book", isPresented: $viewModel.showingDeleteConfirmation) {
+        .alert("Delete book", isPresented: $vm.showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 viewModel.cancelDelete()
             }
@@ -46,12 +49,14 @@ struct DownloadsView: View {
         .sheet(isPresented: $showingStorageInfo) {
             storageInfoSheet
         }
-        .alert("Error", isPresented: $viewModel.showingErrorAlert) {
+        .alert("Error", isPresented: $vm.showingErrorAlert) {
             Button("OK") { }
         } message: {
             Text(viewModel.errorMessage ?? "Unknown error")
         }
     }
+    
+    // ... [Rest of the file content remains exactly the same] ...
     
     private func contentView() -> some View {
         
@@ -329,6 +334,7 @@ struct DownloadsView: View {
         }
     }
 }
+
 struct StatItem: View {
     let icon: String
     let title: String

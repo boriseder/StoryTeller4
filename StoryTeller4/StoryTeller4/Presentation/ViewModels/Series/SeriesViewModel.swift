@@ -1,17 +1,18 @@
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class SeriesViewModel: ObservableObject {
-    // MARK: - Published UI State
-    @Published var series: [Series] = []
-    @Published var filterState = SeriesFilterState()
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showingErrorAlert = false
+@Observable
+class SeriesViewModel {
+    // MARK: - UI State
+    var series: [Series] = []
+    var filterState = SeriesFilterState()
+    var isLoading = false
+    var errorMessage: String?
+    var showingErrorAlert = false
     
     // For smooth transistions
-    @Published var contentLoaded = false
+    var contentLoaded = false
 
     // MARK: - Dependencies
     private let fetchSeriesUseCase: FetchSeriesUseCaseProtocol
@@ -128,12 +129,10 @@ extension SeriesViewModel {
     @MainActor
     static var placeholder: SeriesViewModel {
         SeriesViewModel(
-            fetchSeriesUseCase: FetchSeriesUseCase(
-                bookRepository: BookRepository.placeholder
-            ),
-            downloadRepository: DefaultDownloadRepository.placeholder,  // ✅ Use concrete type
+            fetchSeriesUseCase: FetchSeriesUseCase(bookRepository: BookRepository.placeholder),
+            downloadRepository: DefaultDownloadRepository.placeholder,
             libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "", authToken: ""),
+            api: AudiobookshelfClient(baseURL: "http://placeholder", authToken: ""),
             downloadManager: DownloadManager(),
             player: AudioPlayer(),
             appState: AppStateManager.shared,
