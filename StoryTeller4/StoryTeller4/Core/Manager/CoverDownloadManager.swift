@@ -26,7 +26,7 @@ actor CoverDownloadManager {
         }
         
         let task = Task<UIImage?, Error> {
-            defer { Task { await self.removeTask(for: cacheKey) } }
+            defer { Task { self.removeTask(for: cacheKey) } }
             
             guard let url = URL(string: "\(baseURL)\(coverPath)") else {
                 throw CoverLoadingError.invalidURL
@@ -77,7 +77,7 @@ actor CoverDownloadManager {
         }
         
         let task = Task<UIImage?, Error> {
-            defer { Task { await self.removeTask(for: cacheKey) } }
+            defer { Task { self.removeTask(for: cacheKey) } }
             
             let coverURLString = "\(baseURL)/api/authors/\(authorId)/image"
             guard let url = URL(string: coverURLString) else {

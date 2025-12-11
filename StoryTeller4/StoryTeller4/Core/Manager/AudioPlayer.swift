@@ -379,40 +379,45 @@ class AudioPlayer: NSObject, ObservableObject {
     }
     
     private func setupInterruptionHandling() {
-        let observer = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                self?.handleInterruption(notification: notification)
-            }
-        }
-        notificationWrapper.add(observer)
-    }
-    
-    private func handleInterruption(notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-        
-        switch type {
-        case .began:
-            pause()
-        case .ended:
-            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
-            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-            if options.contains(.shouldResume) {
-                Task {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    self.play()
+            let observer = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                // Extract values locally to avoid passing the whole Notification object into the Task
+                guard let userInfo = notification.userInfo,
+                      let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+                
+                // Extract options if they exist (safe to default to 0/nil)
+                let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt
+                
+                Task { @MainActor [weak self] in
+                    // Pass extracted values instead of 'notification'
+                    self?.handleInterruption(type: type, optionsValue: optionsValue)
                 }
             }
-        @unknown default:
-            break
+            notificationWrapper.add(observer)
         }
-    }
-    
+        
+        // Update the handler signature to accept extracted values
+        private func handleInterruption(type: AVAudioSession.InterruptionType, optionsValue: UInt?) {
+            switch type {
+            case .began:
+                pause()
+            case .ended:
+                guard let optionsValue = optionsValue else { return }
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        self.play()
+                    }
+                }
+            @unknown default:
+                break
+            }
+        }
     private func startPreloadingNextChapter() {
         guard let book = book else { return }
         Task {

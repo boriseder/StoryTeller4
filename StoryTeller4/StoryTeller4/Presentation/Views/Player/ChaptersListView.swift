@@ -271,7 +271,9 @@ struct ChaptersListView: View {
     
     private func startPeriodicUpdates() {
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            updateChapterViewModels()
+            Task { @MainActor in
+                            updateChapterViewModels()
+                        }
         }
     }
     

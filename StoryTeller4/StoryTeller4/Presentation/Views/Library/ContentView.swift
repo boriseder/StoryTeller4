@@ -41,7 +41,7 @@ struct ContentView: View {
                         }
                     }
                 
-            case .networkError(let issueType):
+            case .networkError(_):
                 if bookCount > 0 {
                     mainContent
                         .onAppear {

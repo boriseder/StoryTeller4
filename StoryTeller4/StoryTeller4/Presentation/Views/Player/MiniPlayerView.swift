@@ -46,38 +46,40 @@ struct MiniPlayerView: View {
     }
     
     private var progressBar: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.3))
-                    .frame(height: progressBarHeight)
-                
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.accentColor,
-                                Color.accentColor.opacity(0.8)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(height: progressBarHeight)
+                    
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
                         )
-                    )
-                    .frame(
-                        width: geometry.size.width * CGFloat(player.currentTime / max(player.duration, 1)),
-                        height: progressBarHeight
-                    )
-                    .animation(.linear(duration: 0.1), value: player.currentTime)
+                        .frame(
+                            // Calculate width safely
+                            width: geometry.size.width * CGFloat(player.currentTime / max(player.duration, 1)),
+                            height: progressBarHeight
+                        )
+                        .animation(.linear(duration: 0.1), value: player.currentTime)
+                }
+                // Move gesture INSIDE GeometryReader to access 'geometry'
+                .contentShape(Rectangle()) // Ensures the whole area is tappable
+                .onTapGesture { location in
+                    let width = geometry.size.width
+                    guard width > 0 else { return }
+                    
+                    let progress = location.x / width
+                    let seekTime = progress * player.duration
+                    player.seek(to: seekTime)
+                }
             }
+            .frame(height: progressBarHeight)
         }
-        .frame(height: progressBarHeight)
-        .onTapGesture { location in
-            let progress = location.x / UIScreen.main.bounds.width
-            let seekTime = progress * player.duration
-            player.seek(to: seekTime)
-        }
-    }
-    
     private var dragGesture: some Gesture {
         DragGesture()
             .onChanged { value in
