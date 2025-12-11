@@ -7,6 +7,15 @@ struct ContentView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var dependencies: DependencyContainer
     
+    // MARK: - Hoisted ViewModels (State Management)
+    // These live here to ensure Sidebar and Detail views share the same state,
+    // and to persist state when switching tabs.
+    @StateObject private var homeViewModel: HomeViewModel
+    @StateObject private var libraryViewModel: LibraryViewModel
+    @StateObject private var seriesViewModel: SeriesViewModel
+    @StateObject private var authorsViewModel: AuthorsViewModel
+    @StateObject private var downloadsViewModel: DownloadsViewModel
+    
     @State private var selectedTab: TabIndex = .home
     @State private var bookCount = 0
     @State private var cancellables = Set<AnyCancellable>()
@@ -18,6 +27,16 @@ struct ContentView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .automatic
     
     let api = DependencyContainer.shared.apiClient
+    
+    // Custom Init to create ViewModels using the Factory
+    init() {
+        let container = DependencyContainer.shared
+        _homeViewModel = StateObject(wrappedValue: container.makeHomeViewModel())
+        _libraryViewModel = StateObject(wrappedValue: container.makeLibraryViewModel())
+        _seriesViewModel = StateObject(wrappedValue: container.makeSeriesViewModel())
+        _authorsViewModel = StateObject(wrappedValue: container.makeAuthorsViewModel())
+        _downloadsViewModel = StateObject(wrappedValue: container.makeDownloadsViewModel())
+    }
     
     var body: some View {
         ZStack {
@@ -51,19 +70,6 @@ struct ContentView: View {
                 } else {
                     NoDownloadsView()
                 }
-                /*
-                 } else {
-                 NetworkErrorView(
-                 issueType: issueType,
-                 onRetry: { Task { setupApp() } },
-                 onViewDownloads: {
-                 appState.selectedTab = .downloads
-                 appState.loadingState = .ready
-                 },
-                 onSettings: { appState.showingSettings = true }
-                 )
-                 }
-                 */
                 
             case .ready:
                 mainContent
@@ -72,13 +78,11 @@ struct ContentView: View {
         }
         .onAppear(perform: setupApp)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            
             if UserDefaults.standard.bool(forKey: "auto_cache_cleanup") {
                 Task { await CoverCacheManager.shared.optimizeCache() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("ServerSettingsChanged"))) { _ in
-            
             appState.clearConnectionIssue()
             Task {
                 setupApp()
@@ -95,7 +99,7 @@ struct ContentView: View {
                 SettingsView()
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
+                        ToolbarItem(placement: .navigationBarTrailing) {
                             Button("Done") {
                                 appState.showingSettings = false
                                 Task { setupApp() }
@@ -128,7 +132,6 @@ struct ContentView: View {
         .environmentObject(dependencies.sleepTimerService)
     }
     
-    
     // MARK: - iPad Layout (Sidebar)
     
     private var iPadLayout: some View {
@@ -144,7 +147,6 @@ struct ContentView: View {
     
     private var iPadSidebarContent: some View {
         List {
-            
             // Navigation Section
             Section {
                 Button(action: { appState.selectedTab = .home }) {
@@ -210,13 +212,13 @@ struct ContentView: View {
                 }
             }
             
-            // Filter & Sort Section (for Library)
+            // Filter & Sort Section (for Library/Series)
             if appState.selectedTab == .library {
-                LibrarySidebarFilters()
-                    .environmentObject(dependencies)
+                // Pass the specific instance of LibraryViewModel
+                LibrarySidebarFilters(viewModel: libraryViewModel)
             } else if appState.selectedTab == .series {
-                SeriesSidebarSort()
-                    .environmentObject(dependencies)
+                // Pass the specific instance of SeriesViewModel
+                SeriesSidebarSort(viewModel: seriesViewModel)
             }
             
             // Library Info Section
@@ -227,7 +229,8 @@ struct ContentView: View {
                             .foregroundColor(.blue)
                         Text("Books")
                         Spacer()
-                        Text("\(dependencies.libraryViewModel.totalBooksCount)")
+                        // Use the local viewModel instance
+                        Text("\(libraryViewModel.totalBooksCount)")
                             .foregroundColor(.secondary)
                     }
                     
@@ -270,7 +273,6 @@ struct ContentView: View {
         .id(theme.accent)
     }
     
-    
     // MARK: - Selected Tab View (for iPad)
     
     @ViewBuilder
@@ -278,27 +280,27 @@ struct ContentView: View {
         switch appState.selectedTab {
         case .home:
             NavigationStack {
-                HomeView()
+                HomeView(viewModel: homeViewModel)
             }
             
         case .library:
             NavigationStack {
-                LibraryView(columnVisibility: $columnVisibility)
+                LibraryView(viewModel: libraryViewModel, columnVisibility: $columnVisibility)
             }
             
         case .series:
             NavigationStack {
-                SeriesView()
+                SeriesView(viewModel: seriesViewModel)
             }
             
         case .authors:
             NavigationStack {
-                AuthorsView()
+                AuthorsView(viewModel: authorsViewModel)
             }
             
         case .downloads:
             NavigationStack {
-                DownloadsView()
+                DownloadsView(viewModel: downloadsViewModel)
             }
         }
     }
@@ -307,7 +309,7 @@ struct ContentView: View {
     
     private var homeTab: some View {
         NavigationStack {
-            HomeView()
+            HomeView(viewModel: homeViewModel)
         }
         .tabItem {
             Image(systemName: "sharedwithyou")
@@ -318,7 +320,7 @@ struct ContentView: View {
     
     private var libraryTab: some View {
         NavigationStack {
-            LibraryView(columnVisibility: $columnVisibility)
+            LibraryView(viewModel: libraryViewModel, columnVisibility: $columnVisibility)
         }
         .tabItem {
             Image(systemName: "books.vertical.fill")
@@ -329,7 +331,7 @@ struct ContentView: View {
     
     private var seriesTab: some View {
         NavigationStack {
-            SeriesView()
+            SeriesView(viewModel: seriesViewModel)
         }
         .tabItem {
             Image(systemName: "play.square.stack.fill")
@@ -340,7 +342,7 @@ struct ContentView: View {
     
     private var authorsTab: some View {
         NavigationStack {
-            AuthorsView()
+            AuthorsView(viewModel: authorsViewModel)
         }
         .tabItem {
             Image(systemName: "person.2")
@@ -351,7 +353,7 @@ struct ContentView: View {
     
     private var downloadsTab: some View {
         NavigationStack {
-            DownloadsView()
+            DownloadsView(viewModel: downloadsViewModel)
         }
         .tabItem {
             Image(systemName: "arrow.down.circle.fill")
@@ -361,8 +363,7 @@ struct ContentView: View {
         .tag(TabIndex.downloads)
     }
     
-    
-    // MARK: - Setup Methods in ContentView
+    // MARK: - Setup Methods
     
     private func setupApp() {
         Task { @MainActor in
@@ -374,6 +375,7 @@ struct ContentView: View {
                 return
             }
             
+            // Wait for download manager to initialize repository
             while downloadManager.repository == nil {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
@@ -385,7 +387,6 @@ struct ContentView: View {
             do {
                 let token = try KeychainService.shared.getToken(for: username)
                 
-                // ✅ UNIFIED: Configure everything through DependencyContainer
                 dependencies.configureAPI(baseURL: baseURL, token: token)
                 
                 let client = dependencies.apiClient!
@@ -394,50 +395,36 @@ struct ContentView: View {
                 switch connectionResult {
                 case .success:
                     appState.isServerReachable = true
-                    
-                    // Configure player
                     player.configure(baseURL: baseURL, authToken: token, downloadManager: downloadManager)
                     
                     appState.loadingState = .loadingData
                     
-                    // Load library data
                     await initAppLibrary(client: client)
-                    
-                    // ✅ SIMPLIFIED: All shared repositories through DependencyContainer
                     await dependencies.initializeSharedRepositories(isOnline: true)
                     
                     appState.loadingState = .ready
                     
-                    // Configure audio session & cache
                     configureAudioSession()
                     setupCacheManager()
                     
                 case .networkError(let issueType):
                     appState.isServerReachable = false
                     appState.loadingState = .networkError(issueType)
-                    
-                    // ✅ Set offline mode through DependencyContainer
                     await dependencies.initializeSharedRepositories(isOnline: false)
                     
                 case .failed:
                     appState.isServerReachable = false
                     appState.loadingState = .networkError(ConnectionIssueType.serverError)
-                    
-                    // ✅ Set offline mode through DependencyContainer
                     await dependencies.initializeSharedRepositories(isOnline: false)
                     
                 case .authenticationError:
                     appState.loadingState = .authenticationError
-                    
-                    // ✅ Set offline mode through DependencyContainer
                     await dependencies.initializeSharedRepositories(isOnline: false)
                 }
                 
             } catch {
                 AppLogger.general.error("[ContentView] Keychain error: \(error)")
                 appState.loadingState = .authenticationError
-                
-                // ✅ Set offline mode through DependencyContainer (auch bei Keychain Error)
                 await dependencies.initializeSharedRepositories(isOnline: false)
             }
         }
@@ -448,7 +435,6 @@ struct ContentView: View {
         
         do {
             let selectedLibrary = try await libraryRepository.initializeLibrarySelection()
-            
             if let library = selectedLibrary {
                 AppLogger.general.info("[ContentView] Library initialized: \(library.name)")
             } else {
@@ -472,13 +458,10 @@ struct ContentView: View {
             default:
                 AppLogger.general.error("[ContentView] Network error: \(urlError)")
             }
-            
         case .decodingError:
             AppLogger.general.error("[ContentView] Data format error - check server version")
-            
         case .unauthorized:
             appState.loadingState = .authenticationError
-            
         default:
             AppLogger.general.error("[ContentView] Repository error: \(error)")
         }
@@ -487,12 +470,9 @@ struct ContentView: View {
     private func setupCacheManager() {
         Task { @MainActor in
             CoverCacheManager.shared.updateCacheLimits()
-            
             if UserDefaults.standard.bool(forKey: "cache_optimization_enabled") {
                 await CoverCacheManager.shared.optimizeCache()
             }
-            
-            AppLogger.general.info("[App] Cache manager initialized")
         }
     }
     
@@ -501,9 +481,6 @@ struct ContentView: View {
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.playback, mode: .spokenAudio)
             try audioSession.setActive(true)
-            
-            AppLogger.general.info("[App] Audio session configured")
-            
         } catch {
             AppLogger.general.error("[App] ❌ Failed to configure audio session: \(error)")
         }
@@ -530,24 +507,11 @@ struct ContentView: View {
             return .networkError(.serverUnreachable)
         }
     }
-    
 }
-
-enum ConnectionTestResult {
-    case success
-    case networkError(ConnectionIssueType)
-    case authenticationError
-    case failed
-}
-
 
 // MARK: - Library Sidebar Filters
 struct LibrarySidebarFilters: View {
-    @EnvironmentObject var dependencies: DependencyContainer
-    
-    private var viewModel: LibraryViewModel {
-        dependencies.libraryViewModel
-    }
+    @ObservedObject var viewModel: LibraryViewModel
     
     var body: some View {
         Section("Filters & Sorting") {
@@ -633,11 +597,7 @@ struct LibrarySidebarFilters: View {
 
 // MARK: - Series Sidebar Sort
 struct SeriesSidebarSort: View {
-    @EnvironmentObject var dependencies: DependencyContainer
-    
-    private var viewModel: SeriesViewModel {
-        dependencies.seriesViewModel
-    }
+    @ObservedObject var viewModel: SeriesViewModel
     
     var body: some View {
         Section("Sorting") {
@@ -668,4 +628,11 @@ struct SeriesSidebarSort: View {
             }
         }
     }
+}
+
+enum ConnectionTestResult {
+    case success
+    case networkError(ConnectionIssueType)
+    case authenticationError
+    case failed
 }

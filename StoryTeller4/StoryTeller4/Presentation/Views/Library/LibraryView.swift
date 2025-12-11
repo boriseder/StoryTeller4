@@ -3,7 +3,7 @@ import Combine
 
 struct LibraryView: View {
     
-    @StateObject private var viewModel: LibraryViewModel = DependencyContainer.shared.libraryViewModel
+    @ObservedObject var viewModel: LibraryViewModel
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var dependencies: DependencyContainer
@@ -302,8 +302,6 @@ struct LibraryView: View {
         }
     }
 }
-
-// Banner Views bleiben unverändert...
 struct FilterStatusBannerView: View {
     let count: Int
     let totalDownloaded: Int

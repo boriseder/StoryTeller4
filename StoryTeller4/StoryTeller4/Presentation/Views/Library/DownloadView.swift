@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DownloadsView: View {
-    @StateObject private var viewModel: DownloadsViewModel = DependencyContainer.shared.downloadsViewModel
+    @ObservedObject var viewModel: DownloadsViewModel
     @EnvironmentObject private var appState: AppStateManager
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var dependencies: DependencyContainer
@@ -329,9 +329,6 @@ struct DownloadsView: View {
         }
     }
 }
-
-// MARK: - Supporting Views
-
 struct StatItem: View {
     let icon: String
     let title: String

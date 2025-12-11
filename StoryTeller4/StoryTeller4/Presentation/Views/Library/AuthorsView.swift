@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AuthorsView: View {
-    @StateObject private var viewModel = DependencyContainer.shared.authorsViewModel
+    @ObservedObject var viewModel: AuthorsViewModel
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var appState: AppStateManager
     
@@ -54,12 +54,8 @@ struct AuthorsView: View {
             .presentationBackground(.black.opacity(0.65))
         }
     }
-    
-    // MARK: - Subviews
-      
 }
 
-// MARK: - Author Row Component
 struct AuthorRow: View {
     let author: Author
  
@@ -69,14 +65,12 @@ struct AuthorRow: View {
     var body: some View {
         HStack(spacing: DSLayout.contentGap) {
             
-            // Author Image 
             AuthorImageView(
                 author: author,
                 api: DependencyContainer.shared.apiClient,
                 size: DSLayout.smallAvatar
             )
             
-            // Author Info
             VStack(alignment: .leading, spacing: DSLayout.elementGap) {
                 Text(author.name)
                     .font(DSText.detail)
@@ -105,4 +99,3 @@ struct AuthorRow: View {
         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
     }
 }
-

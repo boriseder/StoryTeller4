@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @StateObject private var viewModel = DependencyContainer.shared.settingsViewModel
+    @StateObject private var viewModel = DependencyContainer.shared.makeSettingsViewModel()
     @EnvironmentObject var theme: ThemeManager
 
     @State private var selectedColor: Color = .blue
@@ -11,8 +11,6 @@ struct SettingsView: View {
 
     let colors: [Color] = [.red, .orange, .green, .blue, .purple, .pink]
 
-    
-    
     var body: some View {
         NavigationStack {
             formContent
@@ -44,18 +42,13 @@ struct SettingsView: View {
                 connectionSection
             }
             
-            
-            
             aboutSection
             advancedSection
         }
     }
     
-    // MARK: Theme Settings
-    
     private var themeSection: some View {
             Section {
-                // Background Style
                 Picker("Select Theme", selection: $theme.backgroundStyle) {
                     ForEach(UserBackgroundStyle.allCases, id: \.self) { option in
                         Text(option.rawValue.capitalized).tag(option)
@@ -93,12 +86,8 @@ struct SettingsView: View {
             }
     }
     
-    
-    // MARK:  Playback Settings
-
     private var playbackSection: some View {
         Section {
-            // Background Style
                 Toggle("Fullscreen-Player on Play", isOn: $openFullscreenPlayer)
                 Toggle("Enable Autoplay on Book Tap", isOn: $autoPlayOnBookTap)
 
@@ -108,9 +97,6 @@ struct SettingsView: View {
         }
 
     }
-    
-    
-    // MARK: - Libraries Section
     
     private var librariesSection: some View {
         Section {
@@ -155,8 +141,6 @@ struct SettingsView: View {
         } footer: { }
     }
 
-    // MARK: - Server Section
-    
     private var serverSection: some View {
         Section {
             Picker("Protocol", selection: $viewModel.serverConfig.scheme) {
@@ -205,8 +189,6 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Connection Section
-    
     private var connectionSection: some View {
         Section {
             if viewModel.isTestingConnection {
@@ -242,9 +224,6 @@ struct SettingsView: View {
         }
     }
 
-    
-    // MARK: - Credentials Section
-
     private var credentialsSection: some View {
         Section {
             if viewModel.isLoggedIn {
@@ -278,7 +257,6 @@ struct SettingsView: View {
                 }
                 .disabled(!viewModel.canLogin)
                 
-                // NEW: Show loading state after login
                 if viewModel.isTestingConnection {
                     HStack {
                         ProgressView()
@@ -302,9 +280,6 @@ struct SettingsView: View {
             }
         }
     }
-    
-    
-    // MARK: - Storage Section
     
     private var storageSection: some View {
         Section {
@@ -387,9 +362,6 @@ struct SettingsView: View {
         }
     }
     
-    
-    // MARK: - About Section
-    
     private var aboutSection: some View {
         Section {
             HStack {
@@ -432,8 +404,6 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Advanced Section
-    
     private var advancedSection: some View {
         Group {
             
@@ -447,8 +417,6 @@ struct SettingsView: View {
             }
         }
     }
-    
-    // MARK: - Helper Methods
     
     private func getAppVersion() -> String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -523,4 +491,3 @@ struct AccentColorSettings: View {
         .padding()
     }
 }
-

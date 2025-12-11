@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HomeView: View {
-    @StateObject private var viewModel: HomeViewModel = DependencyContainer.shared.homeViewModel
+    @ObservedObject var viewModel: HomeViewModel
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var dependencies: DependencyContainer
@@ -196,8 +196,6 @@ struct HomeView: View {
         .shadow(color: .black.opacity(0.05), radius: DSCorners.element, x: 0, y: 4)
     }
 }
-
-// MARK: - Personalized Section View
 struct PersonalizedSectionView: View {
     let section: PersonalizedSection
     @ObservedObject var player: AudioPlayer
@@ -276,7 +274,6 @@ struct PersonalizedSectionView: View {
     }
 
     private var seriesSection: some View {
-        // Convert to array to avoid lazy filter issues in Swift 6
         let entities = Array(section.entities)
         
         return ScrollView(.horizontal, showsIndicators: false) {
@@ -300,7 +297,6 @@ struct PersonalizedSectionView: View {
     }
     
     private var authorsSection: some View {
-        // Extract authors from entities
         let authors = section.entities.compactMap { $0.asAuthor }
         
         return ScrollView(.horizontal, showsIndicators: false) {
@@ -319,7 +315,6 @@ struct PersonalizedSectionView: View {
 
 }
 
-// MARK: - Series Card View
 struct SeriesCardView: View {
     let entity: PersonalizedEntity
     let api: AudiobookshelfClient
@@ -356,7 +351,6 @@ struct SeriesCardView: View {
                         .frame(maxWidth: DSLayout.cardCoverNoPadding - 2 * DSLayout.elementPadding, alignment: .leading)
                 }
             }
-            //.frame(width: DSLayout.cardCoverNoPadding, height: DSLayout.cardCoverNoPadding * 1.30)
             .transition(.opacity)
         }
         .buttonStyle(.plain)
@@ -367,7 +361,6 @@ struct SeriesCardView: View {
     }
 }
 
-// MARK: - Author Card View
 struct AuthorCardView: View {
     let author: Author
     let onTap: () -> Void
@@ -399,7 +392,6 @@ struct AuthorCardView: View {
     }
 }
 
-// MARK: - Array Extension
 extension Array where Element: Hashable {
     func uniqued() -> [Element] {
         var seen = Set<Element>()

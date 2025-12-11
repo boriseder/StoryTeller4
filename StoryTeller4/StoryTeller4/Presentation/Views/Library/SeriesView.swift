@@ -1,11 +1,12 @@
 import SwiftUI
 
 struct SeriesView: View {
-    @StateObject private var viewModel: SeriesViewModel = DependencyContainer.shared.seriesViewModel
+    @ObservedObject var viewModel: SeriesViewModel
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var seriesViewModel: SeriesViewModel
-
+    
+    // Removing the environment object seriesViewModel as we pass it directly now
+    
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
     
     @State private var showEmptyState = false
