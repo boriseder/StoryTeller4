@@ -6,6 +6,8 @@ struct SeriesView: View {
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var seriesViewModel: SeriesViewModel
 
+    @AppStorage("auto_play_on_book_tap") private var autoPlay = false
+    
     @State private var showEmptyState = false
 
     var body: some View {
@@ -55,7 +57,16 @@ struct SeriesView: View {
                         SeriesSectionView(
                             series: series,
                             api: viewModel.api,
-                            onBookSelected: {}
+                            onBookSelected: { book in
+                                Task {
+                                    await viewModel.playBook(
+                                        book,
+                                        appState: appState,
+                                        restoreState: true
+                                        // Optional: autoPlay: autoPlay übergeben, falls playBookSignatur das erlaubt
+                                    )
+                                }
+                            }
                         )
                         .environmentObject(appState)
                     }

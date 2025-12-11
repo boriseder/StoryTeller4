@@ -38,8 +38,12 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         nameIgnorePrefix = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefix)
         nameIgnorePrefixSort = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefixSort)
-        numBooks = try container.decode(Int.self, forKey: .numBooks)
+        
+        // FIX: Decode numBooks optionally and provide a fallback
         books = try container.decodeIfPresent([LibraryItem].self, forKey: .books)
+        let decodedNumBooks = try container.decodeIfPresent(Int.self, forKey: .numBooks)
+        // If numBooks is missing, use the count of books array, or default to 0
+        numBooks = decodedNumBooks ?? books?.count ?? 0
         
         if let timestamp = try? container.decode(TimeInterval.self, forKey: .addedAt) {
             addedAt = TimestampConverter.dateFromServer(timestamp)
@@ -93,9 +97,10 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     var displayTitle: String { collapsedSeries?.name ?? title }
     var seriesBookCount: Int { collapsedSeries?.numBooks ?? 1 }
     
+    // CLEAN CODE: Fix this helper to use the canonical API endpoint
     func coverURL(baseURL: String) -> URL? {
-        guard let coverPath = coverPath else { return nil }
-        return URL(string: "\(baseURL)\(coverPath)")
+        guard coverPath != nil else { return nil }
+        return APIEndpoint.cover(bookId: id).url(baseURL: baseURL)
     }
     
     func chapter(at time: Double) -> Chapter? {

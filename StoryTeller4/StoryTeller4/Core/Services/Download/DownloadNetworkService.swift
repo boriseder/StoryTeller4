@@ -67,28 +67,27 @@ final class DefaultDownloadNetworkService: DownloadNetworkService {
     /// Downloads cover using the correct API endpoint
     /// Uses /api/items/{id}/cover which is the canonical endpoint for covers
     func downloadCover(bookId: String, api: AudiobookshelfClient) async throws -> Data {
-        // Construct the correct cover endpoint
-        let coverURLString = "\(api.baseURLString)/api/items/\(bookId)/cover"
-        
-        guard let coverURL = URL(string: coverURLString) else {
-            AppLogger.general.error("[DownloadNetwork] Invalid cover URL: \(coverURLString)")
-            throw DownloadError.invalidCoverURL
+            // CLEAN CODE: Use APIEndpoint instead of manual string construction
+            // This ensures offline downloads use the EXACT same URL logic as the UI
+            guard let coverURL = APIEndpoint.cover(bookId: bookId).url(baseURL: api.baseURLString) else {
+                AppLogger.general.error("[DownloadNetwork] Invalid cover URL for book: \(bookId)")
+                throw DownloadError.invalidCoverURL
+            }
+            
+            AppLogger.general.debug("[DownloadNetwork] Downloading cover from: \(coverURL)")
+            
+            // Use the standard downloadFile method
+            let data = try await downloadFile(from: coverURL, authToken: api.authToken)
+            
+            // Validate it's actually an image
+            guard isValidImageData(data) else {
+                AppLogger.general.error("[DownloadNetwork] Downloaded cover is not a valid image")
+                throw DownloadError.invalidImageData
+            }
+            
+            AppLogger.general.debug("[DownloadNetwork] Cover downloaded successfully (\(data.count) bytes)")
+            return data
         }
-        
-        AppLogger.general.debug("[DownloadNetwork] Downloading cover from: \(coverURLString)")
-        
-        // Use the standard downloadFile method
-        let data = try await downloadFile(from: coverURL, authToken: api.authToken)
-        
-        // Validate it's actually an image
-        guard isValidImageData(data) else {
-            AppLogger.general.error("[DownloadNetwork] Downloaded cover is not a valid image")
-            throw DownloadError.invalidImageData
-        }
-        
-        AppLogger.general.debug("[DownloadNetwork] Cover downloaded successfully (\(data.count) bytes)")
-        return data
-    }
     
     func createPlaybackSession(libraryItemId: String, api: AudiobookshelfClient) async throws -> PlaybackSessionResponse {
         let url = URL(string: "\(api.baseURLString)/api/items/\(libraryItemId)/play")!

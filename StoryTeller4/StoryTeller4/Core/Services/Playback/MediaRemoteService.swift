@@ -116,11 +116,18 @@ class DefaultMediaRemoteService: MediaRemoteService {
         ]
         
         if let artwork = info.artwork {
-            let artworkObject = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = artworkObject
+            // FIX: Create artwork in nonisolated context to prevent the closure
+            // from inheriting MainActor isolation, which causes a crash when
+            // called on the background queue.
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = createArtwork(from: artwork)
         }
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+    
+    // Helper to break actor isolation for the artwork closure
+    private nonisolated func createArtwork(from image: UIImage) -> MPMediaItemArtwork {
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
     
     func clearNowPlaying() {

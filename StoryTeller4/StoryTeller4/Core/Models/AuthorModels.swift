@@ -18,8 +18,8 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
     var displayName: String { name }
     
     func imageURL(baseURL: String) -> URL? {
-        guard let imagePath = imagePath else { return nil }
-        return URL(string: "\(baseURL)\(imagePath)")
+        guard imagePath != nil else { return nil }
+        return APIEndpoint.authorImage(authorId: id).url(baseURL: baseURL)
     }
     
     init(id: String, name: String, description: String? = nil, imagePath: String? = nil, libraryId: String, addedAt: Date = Date(), updatedAt: Date = Date(), numBooks: Int? = nil, lastFirst: String? = nil, libraryItems: [LibraryItem]? = nil, series: [Series]? = nil) {

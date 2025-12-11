@@ -322,7 +322,9 @@ final class DependencyContainer: ObservableObject {
             downloadManager: downloadManager,
             player: player,
             appState: appState,
-            onBookSelected: { }
+            onBookSelected: { [weak self] in
+                self?.playerStateManager.showPlayerBasedOnSettings()
+            }
         )
         
         _seriesViewModel = vm

@@ -4,8 +4,7 @@ struct SeriesSectionView: View {
     @StateObject private var viewModel: SeriesSectionViewModel
     @EnvironmentObject private var dependencies: DependencyContainer
 
-    init(series: Series, api: AudiobookshelfClient, onBookSelected: @escaping () -> Void) {
-        // Temporary placeholder; override container later
+    init(series: Series, api: AudiobookshelfClient, onBookSelected: @escaping (Book) -> Void) {
         self._viewModel = StateObject(wrappedValue: SeriesSectionViewModel(
             series: series,
             api: api,
@@ -27,7 +26,6 @@ struct SeriesSectionView: View {
             }
         }
         .task {
-            // Override container safely inside MainActor
             viewModel.container = dependencies
         }
     }
@@ -39,7 +37,7 @@ struct SeriesSectionView: View {
                     BookCardView(
                         viewModel: BookCardViewModel(book: book, container: dependencies),
                         api: viewModel.api,
-                        onTap: { viewModel.onBookSelected() },
+                        onTap: { viewModel.onBookSelected(book) },
                         onDownload: { Task { await viewModel.downloadManager.downloadBook(book, api: viewModel.api) } },
                         onDelete: { viewModel.downloadManager.deleteBook(book.id) }
                     )
