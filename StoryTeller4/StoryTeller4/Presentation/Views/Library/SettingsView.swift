@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct SettingsView: View {
-    // Migration: Use @State instead of @StateObject for @Observable models
+    // FIX: Initialize local @Observable viewModel with @State
     @State private var viewModel = DependencyContainer.shared.makeSettingsViewModel()
-    @EnvironmentObject var theme: ThemeManager
+    
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
 
     @State private var selectedColor: Color = .blue
 
@@ -13,6 +15,9 @@ struct SettingsView: View {
     let colors: [Color] = [.red, .orange, .green, .blue, .purple, .pink]
 
     var body: some View {
+        // Create binding proxy for ThemeManager to allow writing to bindings
+        @Bindable var theme = theme
+        
         NavigationStack {
             formContent
                 .navigationTitle("Settings")
@@ -51,7 +56,10 @@ struct SettingsView: View {
     // MARK: Theme Settings
     
     private var themeSection: some View {
-            Section {
+        // Need bindable here too if extracted
+        @Bindable var theme = theme
+        
+        return Section {
                 // Background Style
                 Picker("Select Theme", selection: $theme.backgroundStyle) {
                     ForEach(UserBackgroundStyle.allCases, id: \.self) { option in
@@ -90,24 +98,16 @@ struct SettingsView: View {
             }
     }
     
+    // ... [Other sections: playbackSection, librariesSection, etc. remain unchanged] ...
     
-    // MARK:  Playback Settings
-
     private var playbackSection: some View {
         Section {
-            // Background Style
                 Toggle("Fullscreen-Player on Play", isOn: $openFullscreenPlayer)
                 Toggle("Enable Autoplay on Book Tap", isOn: $autoPlayOnBookTap)
-
-
         } header: {
             Label("Playback modes", systemImage: "play.rectangle.on.rectangle")
         }
-
     }
-    
-    
-    // MARK: - Libraries Section
     
     private var librariesSection: some View {
         Section {
@@ -117,7 +117,6 @@ struct SettingsView: View {
                         .scaleEffect(0.8)
                     Text("Loading libraries...")
                         .font(DSText.detail)
-
                 }
             } else {
                 Picker("Active Library", selection: $viewModel.selectedLibraryId) {
@@ -128,7 +127,6 @@ struct SettingsView: View {
                         HStack {
                             Text(library.name)
                             .font(DSText.detail)
-
                         }
                         .tag(library.id as String?)
                     }
@@ -152,8 +150,6 @@ struct SettingsView: View {
         } footer: { }
     }
 
-    // MARK: - Server Section
-    
     private var serverSection: some View {
         Section {
             Picker("Protocol", selection: $viewModel.serverConfig.scheme) {
@@ -202,8 +198,6 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Connection Section
-    
     private var connectionSection: some View {
         Section {
             if viewModel.isTestingConnection {
@@ -239,9 +233,6 @@ struct SettingsView: View {
         }
     }
 
-    
-    // MARK: - Credentials Section
-
     private var credentialsSection: some View {
         Section {
             if viewModel.isLoggedIn {
@@ -275,7 +266,6 @@ struct SettingsView: View {
                 }
                 .disabled(!viewModel.canLogin)
                 
-                // NEW: Show loading state after login
                 if viewModel.isTestingConnection {
                     HStack {
                         ProgressView()
@@ -299,9 +289,6 @@ struct SettingsView: View {
             }
         }
     }
-    
-    
-    // MARK: - Storage Section
     
     private var storageSection: some View {
         Section {
@@ -384,9 +371,6 @@ struct SettingsView: View {
         }
     }
     
-    
-    // MARK: - About Section
-    
     private var aboutSection: some View {
         Section {
             HStack {
@@ -429,13 +413,10 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Advanced Section
-    
     private var advancedSection: some View {
         Group {
-            
             Section {
-                NavigationLink(destination: DebugView()) {
+                NavigationLink(destination: DebugStateView()) {
                     Label("Debug Settings", systemImage: "gearshape.2")
                 }
             } footer: {
@@ -444,8 +425,6 @@ struct SettingsView: View {
             }
         }
     }
-    
-    // MARK: - Helper Methods
     
     private func getAppVersion() -> String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -456,12 +435,11 @@ struct SettingsView: View {
     }
 }
 
-// Helper struct for Alerts
+// ... [AlertsModifier remains same as before] ...
 private struct AlertsModifier: ViewModifier {
     var viewModel: SettingsViewModel
     
     func body(content: Content) -> some View {
-        // Create a Bindable proxy for the observable object to create bindings
         @Bindable var vm = viewModel
         
         content
@@ -494,33 +472,5 @@ private struct AlertsModifier: ViewModifier {
             } message: {
                 Text(viewModel.testResultMessage)
             }
-    }
-}
-
-struct AccentColorSettings: View {
-    @Binding var selectedColor: Color
-    let colors: [Color] = [.red, .orange, .green, .blue, .purple, .pink]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Accent Color")
-                .font(.headline)
-
-            HStack(spacing: 16) {
-                ForEach(colors, id: \.self) { color in
-                    Circle()
-                        .fill(color)
-                        .frame(width: 36, height: 36)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white, lineWidth: selectedColor == color ? 3 : 0)
-                        )
-                        .onTapGesture {
-                            selectedColor = color
-                        }
-                }
-            }
-        }
-        .padding()
     }
 }

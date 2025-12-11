@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct SeriesDetailView: View {
-    // FIX: Use @State for @Observable view model
     @State private var viewModel: SeriesDetailViewModel
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var appState: AppStateManager
-    @EnvironmentObject private var dependencies: DependencyContainer
+    
+    // FIX: Use @Environment(Type.self) for @Observable objects
+    @Environment(AppStateManager.self) private var appState
+    @Environment(DependencyContainer.self) private var dependencies
 
     init(series: Series, onBookSelected: @escaping () -> Void) {
-        // FIX: Initialize with State(initialValue:)
         _viewModel = State(initialValue: SeriesDetailViewModel(
             series: series,
             container: .shared,
@@ -17,7 +17,6 @@ struct SeriesDetailView: View {
     }
     
     init(seriesBook: Book, onBookSelected: @escaping () -> Void) {
-        // FIX: Initialize with State(initialValue:)
         _viewModel = State(initialValue: SeriesDetailViewModel(
             seriesBook: seriesBook,
             container: .shared,

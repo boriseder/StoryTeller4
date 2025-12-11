@@ -2,11 +2,11 @@ import SwiftUI
 import Combine
 
 struct LibraryView: View {
-    // FIX: Standard property for @Observable model
     var viewModel: LibraryViewModel
-    @EnvironmentObject var appState: AppStateManager
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var dependencies: DependencyContainer
+    
+    @Environment(AppStateManager.self) var appState
+    @Environment(ThemeManager.self) var theme
+    @Environment(DependencyContainer.self) var dependencies
 
     @State private var selectedSeries: Book?
     @State private var bookCardVMs: [BookCardViewModel] = []
@@ -19,12 +19,7 @@ struct LibraryView: View {
     @AppStorage("open_fullscreen_player") private var playerMode: Bool = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay: Bool = false
     
-    private var isSidebarVisible: Bool {
-        columnVisibility == .all || columnVisibility == .doubleColumn
-    }
-    
     var body: some View {
-        // Create binding proxy for search text binding
         @Bindable var vm = viewModel
         
         ZStack {
@@ -77,7 +72,7 @@ struct LibraryView: View {
                 seriesBook: series,
                 onBookSelected: viewModel.onBookSelected
             )
-            .environmentObject(appState)
+            .environment(appState)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
@@ -90,19 +85,15 @@ struct LibraryView: View {
         .onChange(of: viewModel.filteredAndSortedBooks.count) {
             updateBookCardViewModels()
         }
-        // Legacy Combine listener for DownloadManager - can stay for now or be refactored
-        // Since we didn't migrate BookCardViewModel yet, we keep this.
+        // Manual refresh for AudioPlayer (Legacy ObservableObject)
         .onReceive(viewModel.player.$currentTime.throttle(for: .seconds(2), scheduler: RunLoop.main, latest: true)) { _ in
             updateCurrentBookOnly()
         }
-        .onReceive(viewModel.downloadManager.$downloadProgress.throttle(for: .milliseconds(500), scheduler: RunLoop.main, latest: true)) { _ in
-            updateDownloadingBooksOnly()
-        }
+        // FIX: Removed DownloadManager observer.
+        // Since DownloadManager is @Observable, BookCardView updates automatically when reading progress.
     }
 
-        
     private var contentView: some View {
-
         ZStack {
             if theme.backgroundStyle == .dynamic {
                 DynamicBackground()
@@ -168,14 +159,7 @@ struct LibraryView: View {
         bookCardVMs[index] = BookCardViewModel(book: bookCardVMs[index].book, container: dependencies )
     }
     
-    private func updateDownloadingBooksOnly() {
-        let downloadingIds = Set(viewModel.downloadManager.downloadProgress.keys)
-        for (index, vm) in bookCardVMs.enumerated() {
-            if downloadingIds.contains(vm.id) {
-                bookCardVMs[index] = BookCardViewModel(book: vm.book, container: dependencies)
-            }
-        }
-    }
+    // FIX: Removed updateDownloadingBooksOnly() as it is no longer needed with @Observable
     
     private func handleBookTap(_ book: Book) {
         if book.isCollapsedSeries {

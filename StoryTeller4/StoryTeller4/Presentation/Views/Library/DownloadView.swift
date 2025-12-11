@@ -1,11 +1,12 @@
 import SwiftUI
 
 struct DownloadsView: View {
-    // FIX: Standard property for @Observable model
     let viewModel: DownloadsViewModel
-    @EnvironmentObject private var appState: AppStateManager
-    @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var dependencies: DependencyContainer
+    
+    // FIX: Use @Environment(Type.self)
+    @Environment(AppStateManager.self) private var appState
+    @Environment(ThemeManager.self) private var theme
+    @Environment(DependencyContainer.self) private var dependencies
 
     @State private var showingStorageInfo = false
     
@@ -56,10 +57,10 @@ struct DownloadsView: View {
         }
     }
     
-    // ... [Rest of the file content remains exactly the same] ...
+    // ... [contentView, storageWarningBanner, etc. same as provided in previous turns] ...
+    // Note: Re-stating contentView for completeness as context might require it
     
     private func contentView() -> some View {
-        
         ZStack {
             if theme.backgroundStyle == .dynamic {
                 DynamicBackground()
@@ -151,7 +152,6 @@ struct DownloadsView: View {
     
     private var downloadStatsCard: some View {
         VStack(spacing: DSLayout.elementGap) {
-            
             HStack(spacing: DSLayout.tightGap) {
                 VStack(spacing: 0) {
                     Text("\(viewModel.downloadedBooks.count) \(viewModel.downloadedBooks.count == 1 ? "book" : "books") available offline")
@@ -171,9 +171,7 @@ struct DownloadsView: View {
                         .foregroundColor(.blue)
                 }
             }
-            
             Divider()
-            
             HStack(spacing: DSLayout.elementGap) {
                 StatItem(
                     icon: "externaldrive.fill",
@@ -182,10 +180,7 @@ struct DownloadsView: View {
                     color: .blue
                 )
                 .frame(maxWidth: .infinity, alignment: .center)
-                
-                Divider()
-                    .frame(height: 40)
-                
+                Divider().frame(height: 40)
                 StatItem(
                     icon: "externaldrive.badge.checkmark",
                     title: "Available",
@@ -224,14 +219,12 @@ struct DownloadsView: View {
                         icon: "externaldrive.fill",
                         color: .blue
                     )
-                    
                     StorageRow(
                         title: "Available Storage",
                         value: viewModel.formatBytes(viewModel.availableStorage),
                         icon: "externaldrive.badge.checkmark",
                         color: viewModel.availableStorage < viewModel.storageThreshold ? .orange : .green
                     )
-                    
                     StorageRow(
                         title: "Downloaded Books",
                         value: "\(viewModel.downloadedBooks.count)",
@@ -250,7 +243,6 @@ struct DownloadsView: View {
                                     Text(book.title)
                                         .font(.subheadline)
                                         .lineLimit(1)
-                                    
                                     if let author = book.author {
                                         Text(author)
                                             .font(.caption)
@@ -258,14 +250,11 @@ struct DownloadsView: View {
                                             .lineLimit(1)
                                     }
                                 }
-                                
                                 Spacer()
-                                
                                 VStack(alignment: .trailing, spacing: DSLayout.tightGap) {
                                     Text(viewModel.getBookStorageSize(book))
                                         .font(.caption)
                                         .fontWeight(.medium)
-                                    
                                     Button(action: {
                                         viewModel.requestDeleteBook(book)
                                         showingStorageInfo = false
@@ -288,13 +277,11 @@ struct DownloadsView: View {
                         title: "Manage Storage",
                         description: "Delete books you've finished to free up space"
                     )
-                    
                     TipRow(
                         icon: "wifi",
                         title: "Stream Instead",
                         description: "Use streaming when online to save storage"
                     )
-                    
                     TipRow(
                         icon: "arrow.down.circle",
                         title: "Selective Downloads",

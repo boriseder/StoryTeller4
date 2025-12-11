@@ -1,29 +1,44 @@
 import SwiftUI
 
 struct BookCardView: View {
-    // Standard property for @Observable model
     let viewModel: BookCardViewModel
     let api: AudiobookshelfClient?
     let onTap: () -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
     
-    @EnvironmentObject var theme: ThemeManager
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
     
+    @State private var isPressed = false
+    
+    // Default initializer
+    init(
+        viewModel: BookCardViewModel,
+        api: AudiobookshelfClient?,
+        onTap: @escaping () -> Void,
+        onDownload: @escaping () -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.viewModel = viewModel
+        self.api = api
+        self.onTap = onTap
+        self.onDownload = onDownload
+        self.onDelete = onDelete
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: DSLayout.tightGap) {
                 // Cover Image
                 ZStack(alignment: .bottomTrailing) {
-                    // FIX: Use bookAspect instead of standard, and provide width
                     BookCoverView.bookAspect(
                         book: viewModel.book,
-                        width: DSLayout.cardCoverNoPadding, // Use layout constant
+                        width: DSLayout.cardCoverNoPadding,
                         api: api,
                         downloadManager: DependencyContainer.shared.downloadManager
                     )
                     .clipShape(RoundedRectangle(cornerRadius: DSCorners.element))
-                    // FIX: Explicit Color.black to resolve inference error
                     .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
                     
                     // Status Indicators Overlay
@@ -44,7 +59,6 @@ struct BookCardView: View {
                     }
                     .padding(6)
                 }
-                // .aspectRatio(0.66, contentMode: .fit) // Removed as BookCoverView.bookAspect handles sizing
                 
                 // Progress Bar
                 if viewModel.currentProgress > 0 {

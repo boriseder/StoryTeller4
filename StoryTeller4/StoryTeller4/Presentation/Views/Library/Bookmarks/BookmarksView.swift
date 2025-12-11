@@ -3,7 +3,9 @@ import SwiftUI
 struct BookmarksView: View {
     @State private var viewModel = BookmarkViewModel()
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject var theme: ThemeManager
+    
+    // FIX: Use @Environment(Type.self) for @Observable
+    @Environment(ThemeManager.self) var theme
     
     var body: some View {
         NavigationStack {
@@ -86,7 +88,6 @@ struct BookmarksView: View {
                         ForEach(group.bookmarks) { enriched in
                             BookmarkRow(
                                 enriched: enriched,
-                                // FIX: Changed 'onJump' to 'onTap' to match BookmarkRow definition
                                 onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
                                 onEdit: { viewModel.startEditingBookmark(enriched) },
                                 onDelete: { viewModel.deleteBookmark(enriched) }
@@ -98,7 +99,6 @@ struct BookmarksView: View {
                 ForEach(viewModel.filteredBookmarks) { enriched in
                     BookmarkRow(
                         enriched: enriched,
-                        // FIX: Changed 'onJump' to 'onTap'
                         onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
                         onEdit: { viewModel.startEditingBookmark(enriched) },
                         onDelete: { viewModel.deleteBookmark(enriched) }

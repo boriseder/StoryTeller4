@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct AuthorsView: View {
-    // Using simple 'let' because AuthorsViewModel is now @Observable
     let viewModel: AuthorsViewModel
     
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var appState: AppStateManager
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
+    @Environment(AppStateManager.self) var appState
     
     @State private var selectedAuthor: Author?
 
@@ -23,7 +23,6 @@ struct AuthorsView: View {
                         Button {
                             selectedAuthor = author
                         } label: {
-                            // CLEAN CODE: Pass dependencies down instead of using Singleton
                             AuthorRow(author: author, api: viewModel.api)
                         }
                         .buttonStyle(.plain)
@@ -64,8 +63,9 @@ struct AuthorRow: View {
     let author: Author
     let api: AudiobookshelfClient?
  
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var appState: AppStateManager
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
+    @Environment(AppStateManager.self) var appState
 
     var body: some View {
         HStack(spacing: DSLayout.contentGap) {

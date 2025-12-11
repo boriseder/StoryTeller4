@@ -1,6 +1,5 @@
 import SwiftUI
 
-// MARK: - Bookmark Row
 struct BookmarkRow: View {
     let enriched: EnrichedBookmark
     var showBookInfo: Bool = true
@@ -8,15 +7,14 @@ struct BookmarkRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     
-    @EnvironmentObject var theme: ThemeManager
-    // FIX: Removed unused @EnvironmentObject which caused the error
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
     
     @State private var isPressed = false
     @State private var showDeleteConfirm = false
     
     var body: some View {
         HStack(spacing: DSLayout.elementGap) {
-            // Orange bookmark icon
             ZStack {
                 Circle()
                     .fill(
@@ -34,13 +32,13 @@ struct BookmarkRow: View {
             }
             .padding(.leading, DSLayout.elementPadding)
             
-            // Bookmark info
             VStack(alignment: .leading, spacing: DSLayout.elementGap) {
                 Text(enriched.bookmark.title)
                     .font(DSText.emphasized)
                     .fontWeight(.medium)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    .foregroundColor(theme.textColor) // Using theme here
                 
                 HStack(spacing: DSLayout.elementGap) {
                     HStack(spacing: DSLayout.tightGap) {
@@ -60,7 +58,6 @@ struct BookmarkRow: View {
                     }
                     .foregroundColor(.secondary)
                                         
-                    // Book Title (if showing)
                     if showBookInfo {
                         if enriched.isBookLoaded {
                             Text(enriched.bookTitle)
@@ -82,7 +79,6 @@ struct BookmarkRow: View {
             
             Spacer()
             
-            // Action buttons
             HStack(spacing: DSLayout.tightGap) {
                 Button(action: onEdit) {
                     Image(systemName: "pencil")

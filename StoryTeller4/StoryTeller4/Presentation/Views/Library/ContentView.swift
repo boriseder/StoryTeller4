@@ -3,9 +3,9 @@ import Combine
 import AVFoundation
 
 struct ContentView: View {
-    @EnvironmentObject private var appState: AppStateManager
-    @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var dependencies: DependencyContainer
+    @Environment(AppStateManager.self) private var appState
+    @Environment(ThemeManager.self) private var theme
+    @Environment(DependencyContainer.self) private var dependencies
     
     // MARK: - Hoisted ViewModels (All migrated to @Observable)
     @State private var homeViewModel: HomeViewModel
@@ -18,18 +18,20 @@ struct ContentView: View {
     @State private var bookCount = 0
     @State private var cancellables = Set<AnyCancellable>()
     
+    // Dependencies accessed via Environment
     private var player: AudioPlayer { dependencies.player }
     private var downloadManager: DownloadManager { dependencies.downloadManager }
     private var playerStateManager: PlayerStateManager { dependencies.playerStateManager }
     
     @State var columnVisibility: NavigationSplitViewVisibility = .automatic
     
+    // Accessed directly from shared for init (before environment is available)
     let api = DependencyContainer.shared.apiClient
     
     init() {
         let container = DependencyContainer.shared
         
-        // MIGRATION COMPLETE: All ViewModels initialized via State(initialValue:)
+        // ViewModels initialized via State(initialValue:)
         _homeViewModel = State(initialValue: container.makeHomeViewModel())
         _libraryViewModel = State(initialValue: container.makeLibraryViewModel())
         _seriesViewModel = State(initialValue: container.makeSeriesViewModel())
@@ -38,6 +40,8 @@ struct ContentView: View {
     }
     
     var body: some View {
+        @Bindable var appState = appState
+        
         ZStack {
             Color.accent.ignoresSafeArea()
             
@@ -110,6 +114,7 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingWelcome) {
             WelcomeView {
                 appState.showingWelcome = false
+                appState.isFirstLaunch = false
                 appState.showingSettings = true
             }
             .ignoresSafeArea()
@@ -136,7 +141,8 @@ struct ContentView: View {
     private var iPadLayout: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             iPadSidebarContent
-                .environmentObject(dependencies)
+                // FIX: Use .environment() for @Observable objects, NOT .environmentObject()
+                .environment(dependencies)
         } detail: {
             selectedTabView
         }
@@ -146,7 +152,6 @@ struct ContentView: View {
     
     private var iPadSidebarContent: some View {
         List {
-            // Navigation Section
             Section {
                 Button(action: { appState.selectedTab = .home }) {
                     HStack {
@@ -194,7 +199,6 @@ struct ContentView: View {
                 .listRowBackground(appState.selectedTab == .downloads ? Color.accentColor.opacity(0.15) : Color.clear)
             }
             
-            // Quick Actions Section
             Section("Quick Actions") {
                 Button(action: {
                     appState.showingSettings = true
@@ -211,14 +215,12 @@ struct ContentView: View {
                 }
             }
             
-            // Filter & Sort Section (for Library/Series)
             if appState.selectedTab == .library {
                 LibrarySidebarFilters(viewModel: libraryViewModel)
             } else if appState.selectedTab == .series {
                 SeriesSidebarSort(viewModel: seriesViewModel)
             }
             
-            // Library Info Section
             if appState.selectedTab == .library || appState.selectedTab == .series || appState.selectedTab == .downloads {
                 Section("Library Info") {
                     HStack {
@@ -255,10 +257,10 @@ struct ContentView: View {
         .listStyle(.sidebar)
     }
     
-    // MARK: - iPhone Layout (TabView)
-    
     private var iPhoneLayout: some View {
-        TabView(selection: $appState.selectedTab) {
+        @Bindable var appState = appState
+        
+        return TabView(selection: $appState.selectedTab) {
             homeTab
             libraryTab
             seriesTab
@@ -269,8 +271,6 @@ struct ContentView: View {
         .id(theme.accent)
     }
     
-    // MARK: - Selected Tab View (for iPad)
-    
     @ViewBuilder
     private var selectedTabView: some View {
         switch appState.selectedTab {
@@ -278,30 +278,24 @@ struct ContentView: View {
             NavigationStack {
                 HomeView(viewModel: homeViewModel)
             }
-            
         case .library:
             NavigationStack {
                 LibraryView(viewModel: libraryViewModel, columnVisibility: $columnVisibility)
             }
-            
         case .series:
             NavigationStack {
                 SeriesView(viewModel: seriesViewModel)
             }
-            
         case .authors:
             NavigationStack {
                 AuthorsView(viewModel: authorsViewModel)
             }
-            
         case .downloads:
             NavigationStack {
                 DownloadsView(viewModel: downloadsViewModel)
             }
         }
     }
-    
-    // MARK: - Tab Views (for iPhone)
     
     private var homeTab: some View {
         NavigationStack {
@@ -359,8 +353,6 @@ struct ContentView: View {
         .tag(TabIndex.downloads)
     }
     
-    // MARK: - Setup Methods
-    
     private func setupApp() {
         Task { @MainActor in
             appState.loadingState = .loadingCredentials
@@ -377,9 +369,7 @@ struct ContentView: View {
             
             do {
                 let token = try KeychainService.shared.getToken(for: username)
-                
                 dependencies.configureAPI(baseURL: baseURL, token: token)
-                
                 let client = dependencies.apiClient!
                 let connectionResult = await testConnection(client: client)
                 
@@ -387,14 +377,10 @@ struct ContentView: View {
                 case .success:
                     appState.isServerReachable = true
                     player.configure(baseURL: baseURL, authToken: token, downloadManager: downloadManager)
-                    
                     appState.loadingState = .loadingData
-                    
                     await initAppLibrary(client: client)
                     await dependencies.initializeSharedRepositories(isOnline: true)
-                    
                     appState.loadingState = .ready
-                    
                     configureAudioSession()
                     setupCacheManager()
                     
@@ -412,7 +398,6 @@ struct ContentView: View {
                     appState.loadingState = .authenticationError
                     await dependencies.initializeSharedRepositories(isOnline: false)
                 }
-                
             } catch {
                 AppLogger.general.error("[ContentView] Keychain error: \(error)")
                 appState.loadingState = .authenticationError
@@ -423,7 +408,6 @@ struct ContentView: View {
     
     private func initAppLibrary(client: AudiobookshelfClient) async {
         let libraryRepository = dependencies.libraryRepository
-        
         do {
             let selectedLibrary = try await libraryRepository.initializeLibrarySelection()
             if let library = selectedLibrary {
@@ -481,12 +465,10 @@ struct ContentView: View {
         guard appState.isDeviceOnline else {
             return .networkError(.noInternet)
         }
-        
         let isHealthy = await client.connection.checkHealth()
         guard isHealthy else {
             return .networkError(.serverUnreachable)
         }
-        
         do {
             _ = try await client.libraries.fetchLibraries()
             return .success
@@ -502,7 +484,6 @@ struct ContentView: View {
 
 // MARK: - Library Sidebar Filters
 struct LibrarySidebarFilters: View {
-    // FIX: Use @Bindable for new @Observable view model
     @Bindable var viewModel: LibraryViewModel
     
     var body: some View {

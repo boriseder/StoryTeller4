@@ -1,56 +1,53 @@
-
 import SwiftUI
 
 struct OfflineBanner: View {
-    @EnvironmentObject var appState: AppStateManager
-
+    // FIX: Use @Environment(Type.self)
+    @Environment(AppStateManager.self) var appState
+    
     var body: some View {
-        
-        if !appState.isDeviceOnline {
-            
+        if !appState.isDeviceOnline || !appState.isServerReachable {
             HStack(spacing: DSLayout.contentGap) {
-                Image(systemName: appState.isDeviceOnline ? "wifi" : "wifi.slash")
-                    .font(DSText.subsectionTitle)
-                    .foregroundColor(.white)
-                
+                Image(systemName: "wifi.slash")
+                    .font(.system(size: 16, weight: .semibold))
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(appState.isDeviceOnline ? "Online" : "Offline")
-                        .font(DSText.prominent)
-                        .foregroundColor(.white)
+                    Text("Offline Mode")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                     
-                    Text("isDeviceOnline: \(String(describing: appState.isDeviceOnline))")
-                        .font(DSText.metadata)
-                        .foregroundColor(.white)
-                    Text("serverReachable: \(String(describing: appState.isServerReachable))")                        .font(DSText.metadata)
-                        .foregroundColor(.white)
+                    Text(reasonText)
+                        .font(.caption)
+                        .opacity(0.9)
                 }
                 
                 Spacer()
                 
-                Divider()
-                    .frame(height: 40)
-                
-                Button {
-                    Task {
-                        await appState.checkServerReachability()
+                if !appState.isDeviceOnline {
+                    Button("Reconnect") {
+                        appState.debugToggleDeviceOnline()
                     }
-                } label: {
-                    Image(systemName: appState.isDeviceOnline ? "icloud" : "icloud.slash")
-                        .font(DSText.button)
-                        .foregroundColor(Color.white)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white.opacity(0.2))
+                    .clipShape(Capsule())
                 }
             }
-            .padding(DSLayout.elementPadding)
-            .background(appState.isDeviceOnline ? Color.green : Color.red.opacity(0.8))
+            .padding()
+            .background(Color.orange)
+            .foregroundColor(.white)
+            .clipShape(RoundedRectangle(cornerRadius: DSCorners.element))
+            .padding(.horizontal, DSLayout.screenPadding)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
     
-    private func formatTimestamp(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+    private var reasonText: String {
+        if !appState.isDeviceOnline {
+            return "No internet connection"
+        } else {
+            return "Server unreachable"
+        }
     }
-
 }
-

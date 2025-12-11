@@ -1,17 +1,17 @@
 import SwiftUI
 
 struct HomeView: View {
-    // FIX: Standard property for @Observable model
+    // FIX: Standard property for @Observable model (passed from ContentView)
     let viewModel: HomeViewModel
-    @EnvironmentObject var appState: AppStateManager
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var dependencies: DependencyContainer
+    
+    // FIX: Use @Environment(Type.self)
+    @Environment(AppStateManager.self) var appState
+    @Environment(ThemeManager.self) var theme
+    @Environment(DependencyContainer.self) var dependencies
 
     @State private var selectedSeries: Series?
     @State private var selectedAuthor: Author?
-
     @State private var showBookmarks = false
-
     @State private var showEmptyState = false
     
     @AppStorage("open_fullscreen_player") private var playerMode = false
@@ -55,7 +55,6 @@ struct HomeView: View {
         }
         .sheet(item: $selectedSeries) { series in
             SeriesDetailView(series: series, onBookSelected: {})
-                .environmentObject(appState)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.black.opacity(0.65))
@@ -78,7 +77,6 @@ struct HomeView: View {
     }
         
     private var contentView: some View {
-        
         ZStack {
             if theme.backgroundStyle == .dynamic {
                 DynamicBackground()
@@ -114,7 +112,7 @@ struct HomeView: View {
                                 selectedAuthor = author
                             }
                         )
-                        .environmentObject(appState)
+                        // Note: Subviews inherit Environment(Type.self) automatically
                     }
                 }
                 Spacer()
@@ -133,7 +131,6 @@ struct HomeView: View {
     }
     
     private var homeHeaderView: some View {
-        
         HStack(spacing: DSLayout.elementGap) {
             HStack(spacing: DSLayout.tightGap) {
                 Image(systemName: "books.vertical.fill")
@@ -150,7 +147,6 @@ struct HomeView: View {
                         .font(DSText.prominent)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
-
             }
 
             Divider()
@@ -170,7 +166,6 @@ struct HomeView: View {
                         .font(DSText.prominent)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
-
             }
 
             Divider()
@@ -198,17 +193,25 @@ struct HomeView: View {
     }
 }
 
+// MARK: - Personalized Section View
 struct PersonalizedSectionView: View {
     let section: PersonalizedSection
+    
+    // Player remains ObservableObject (legacy)
     @ObservedObject var player: AudioPlayer
+    
     let api: AudiobookshelfClient
-    @ObservedObject var downloadManager: DownloadManager
+    
+    // FIX: DownloadManager is @Observable, use 'let' instead of @ObservedObject
+    let downloadManager: DownloadManager
+    
     let onBookSelected: (Book) -> Void
     let onSeriesSelected: (Series) -> Void
     let onAuthorSelected: (Author) -> Void
     
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var dependencies: DependencyContainer
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
+    @Environment(DependencyContainer.self) var dependencies
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSLayout.contentGap) {
@@ -236,7 +239,6 @@ struct PersonalizedSectionView: View {
             Text(section.label)
                 .font(DSText.itemTitle)
                 .foregroundColor(theme.textColor)
-            
         }
     }
     
@@ -276,13 +278,11 @@ struct PersonalizedSectionView: View {
     }
 
     private var seriesSection: some View {
-        let entities = Array(section.entities)
-        
-        return ScrollView(.horizontal, showsIndicators: false) {
+        // FIX: Iterate directly over entities (which are Identifiable)
+        // This solves the 'RandomAccessCollection' compiler error with indices
+        ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: DSLayout.contentGap) {
-                ForEach(entities.indices, id: \.self) { index in
-                    let entity = entities[index]
-                    
+                ForEach(section.entities) { entity in
                     SeriesCardView(
                         entity: entity,
                         api: api,
@@ -314,16 +314,17 @@ struct PersonalizedSectionView: View {
             }
         }
     }
-
 }
 
+// MARK: - Series Card View
 struct SeriesCardView: View {
     let entity: PersonalizedEntity
     let api: AudiobookshelfClient
     let downloadManager: DownloadManager
     let onTap: () -> Void
     
-    @EnvironmentObject var theme: ThemeManager
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
         
     var body: some View {
         Button(action: onTap) {
@@ -345,7 +346,6 @@ struct SeriesCardView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: DSLayout.tightGap) {
-                    
                     Text(displayName)
                         .font(DSText.detail)
                         .foregroundColor(theme.textColor)
@@ -363,11 +363,13 @@ struct SeriesCardView: View {
     }
 }
 
+// MARK: - Author Card View
 struct AuthorCardView: View {
     let author: Author
     let onTap: () -> Void
     
-    @EnvironmentObject var theme: ThemeManager
+    // FIX: Use @Environment(Type.self)
+    @Environment(ThemeManager.self) var theme
     
     var body: some View {
         Button(action: onTap) {
@@ -379,7 +381,6 @@ struct AuthorCardView: View {
                     size: 100
                 )
 
-                
                 Text(author.name)
                     .font(DSText.detail)
                     .foregroundColor(theme.textColor)
@@ -394,6 +395,7 @@ struct AuthorCardView: View {
     }
 }
 
+// MARK: - Array Extension
 extension Array where Element: Hashable {
     func uniqued() -> [Element] {
         var seen = Set<Element>()

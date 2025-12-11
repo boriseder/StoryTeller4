@@ -1,63 +1,62 @@
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-final class ThemeManager: ObservableObject {
-    @Published var backgroundStyle: UserBackgroundStyle {
+@Observable
+final class ThemeManager {
+    
+    // MARK: - Properties
+    var backgroundStyle: UserBackgroundStyle {
         didSet {
-            UserDefaults.standard.set(backgroundStyle.rawValue, forKey: "userBackgroundStyle")
+            UserDefaults.standard.set(backgroundStyle.rawValue, forKey: "user_background_style")
         }
-    }
-
-    @Published var accentColor: UserAccentColor {
-        didSet {
-            UserDefaults.standard.set(accentColor.rawValue, forKey: "userAccentColor")
-        }
-    }
-
-    init() {
-        let bgRaw = UserDefaults.standard.string(forKey: "userBackgroundStyle")
-        backgroundStyle = UserBackgroundStyle(rawValue: bgRaw ?? "") ?? .dynamic
-
-        let accentRaw = UserDefaults.standard.string(forKey: "userAccentColor")
-        accentColor = UserAccentColor(rawValue: accentRaw ?? "") ?? .blue
-    }
-
-    var textColor: Color {
-        backgroundStyle == .light ? .black : .white
-    }
-
-    var backgroundColor: Color {
-        backgroundStyle == .light ? .white : .black
     }
     
-    var backgroundContrastColor: Color {
-        backgroundStyle == .light ? .black : .white
-    }
-
-    var colorScheme: ColorScheme {
-        switch backgroundStyle {
-        case .light: .light
-        case .dark: .dark
-        case .dynamic: .dark
+    var accentColor: UserAccentColor {
+        didSet {
+            UserDefaults.standard.set(accentColor.rawValue, forKey: "user_accent_color")
         }
     }
-
+    
+    // MARK: - Computed
+    var colorScheme: ColorScheme? {
+        // Return nil to follow system, or specific scheme if implemented
+        return nil
+    }
+    
     var accent: Color {
         accentColor.color
     }
+    
+    var textColor: Color {
+        // Simple dynamic text color logic
+        return .primary
+    }
+    
+    // MARK: - Init
+    init() {
+        // Load saved settings
+        let savedBg = UserDefaults.standard.string(forKey: "user_background_style") ?? UserBackgroundStyle.dynamic.rawValue
+        self.backgroundStyle = UserBackgroundStyle(rawValue: savedBg) ?? .dynamic
+        
+        let savedAccent = UserDefaults.standard.string(forKey: "user_accent_color") ?? UserAccentColor.blue.rawValue
+        self.accentColor = UserAccentColor(rawValue: savedAccent) ?? .blue
+    }
 }
 
-enum UserBackgroundStyle: String, CaseIterable, Sendable {
+// MARK: - Enums
+enum UserBackgroundStyle: String, CaseIterable, Identifiable {
     case dynamic
-    case light
-    case dark
+    case plain
+    
+    var id: String { rawValue }
 }
 
-enum UserAccentColor: String, CaseIterable, Identifiable, Sendable {
+enum UserAccentColor: String, CaseIterable, Identifiable {
     case red, orange, green, blue, purple, pink
     
     var id: String { rawValue }
+    
     var color: Color {
         switch self {
         case .red: return .red

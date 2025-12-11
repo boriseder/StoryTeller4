@@ -1,9 +1,12 @@
 import SwiftUI
 
 struct SeriesView: View {
+    // FIX: Use @Bindable for @Observable model passed in
     @Bindable var viewModel: SeriesViewModel
-    @EnvironmentObject var appState: AppStateManager
-    @EnvironmentObject var theme: ThemeManager
+    
+    // FIX: Use @Environment(Type.self)
+    @Environment(AppStateManager.self) var appState
+    @Environment(ThemeManager.self) var theme
     
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
     
@@ -66,7 +69,6 @@ struct SeriesView: View {
                                 }
                             }
                         )
-                        .environmentObject(appState)
                     }
                 }
                 Spacer()

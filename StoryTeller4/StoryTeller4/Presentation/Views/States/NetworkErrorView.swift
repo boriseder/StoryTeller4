@@ -1,59 +1,58 @@
-
 import SwiftUI
 
 struct NetworkErrorView: View {
-    let issueType: ConnectionIssueType
-    let onRetry: () -> Void
-    let onViewDownloads: () -> Void
-    let onSettings: () -> Void
-
+    let issue: ConnectionIssueType
+    let retryAction: () -> Void
+    
     var body: some View {
-        ZStack {
-            Color.white.opacity(0.3)
-                .frame(width: 360, height: 480)
-                .cornerRadius(DSCorners.comfortable)
-                .blur(radius: 0.5)
+        VStack(spacing: DSLayout.contentGap) {
+            Image(systemName: issue.systemImage)
+                .font(.system(size: 50))
+                .foregroundColor(.orange)
             
-            VStack(spacing: DSLayout.contentGap) {
-                Image(systemName: issueType.systemImage)
-                    .font(.system(size: 32))
-                    .foregroundStyle(.black.gradient)
-                    .frame(width: 40, height: 40)
-
-                VStack(spacing: DSLayout.contentGap) {
-                    Text(issueType.userMessage)
-                        .font(DSText.itemTitle)
-
-                    Text(issueType.detailMessage)
-                        .font(DSText.footnote)
-                        .multilineTextAlignment(.center)
-                }
-                VStack(spacing: 12) {
-                   // if issueType.canRetry {
-                        Button(action: onRetry) {
-                            HStack {
-                                Image(systemName: "arrow.clockwise")
-                                Text("Retry Connection")
-                            }
-                            .font(DSText.detail)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, DSLayout.elementPadding)
-                            .padding(.vertical, DSLayout.elementPadding)
-                            .background(Color.accentColor)
-                            .clipShape(Capsule())
-                        }
-                    //}
-                    
-                    Button(action: onSettings) {
-                        Text("Check Settings")
-                            .font(.subheadline)
-                            .foregroundColor(.accentColor)
-                    }
-                }
+            Text("Connection Issue")
+                .font(DSText.body)
+            
+            Text(issueDescription)
+                .font(DSText.body)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+            
+            Button("Retry Connection") {
+                retryAction()
             }
-            .padding(.horizontal, 40)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.red)
+            .buttonStyle(.borderedProminent)
+            .padding(.top)
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+        .padding()
+    }
+    
+    private var issueDescription: String {
+        switch issue {
+        case .noInternet:
+            return "No internet connection detected. Please check your network settings."
+        case .serverUnreachable:
+            return "Cannot reach the server. Please check the URL and ensure the server is online."
+        case .serverError:
+            return "The server encountered an error. Please try again later."
+        }
+    }
+}
+
+// FIX: Extension to add systemImage to the enum locally
+extension ConnectionIssueType {
+    var systemImage: String {
+        switch self {
+        case .noInternet:
+            return "wifi.slash"
+        case .serverUnreachable:
+            return "server.rack"
+        case .serverError:
+            return "exclamationmark.triangle"
         }
     }
 }

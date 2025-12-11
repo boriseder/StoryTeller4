@@ -1,6 +1,6 @@
 import Foundation
 import SwiftUI
-import Combine
+import Observation
 
 // MARK: - Helper Enums (Must be before class usage or Sendable)
 
@@ -79,22 +79,25 @@ enum DownloadError: LocalizedError, Sendable {
     }
 }
 
+
 // MARK: - DownloadManager
 @MainActor
-class DownloadManager: ObservableObject {
+@Observable
+class DownloadManager {
     
-    @Published var downloadedBooks: [Book] = []
-    @Published var downloadProgress: [String: Double] = [:]
-    @Published var isDownloading: [String: Bool] = [:]
-    @Published var downloadStatus: [String: String] = [:]
-    @Published var downloadStage: [String: DownloadStage] = [:]
+    // MARK: - State
+    var downloadedBooks: [Book] = []
+    var downloadProgress: [String: Double] = [:]
+    var isDownloading: [String: Bool] = [:]
+    var downloadStatus: [String: String] = [:]
+    var downloadStage: [String: DownloadStage] = [:]
     
-    // Changed to simple property injection
+    // MARK: - Dependencies
+    // Internal repository reference
     internal private(set) var repository: DownloadRepository?
     
     init() {
-        // No side effects in init!
-        AppLogger.general.debug("[DownloadManager] Initialized (Waiting for configuration)")
+        AppLogger.general.debug("[DownloadManager] Initialized")
     }
     
     // Dependency Injection method

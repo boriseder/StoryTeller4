@@ -4,12 +4,13 @@ struct AuthorDetailView: View {
     let author: Author
     let onBookSelected: () -> Void
 
-    // FIX: Use @State for @Observable view model
     @State private var viewModel: AuthorDetailViewModel
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var appState: AppStateManager
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject private var dependencies: DependencyContainer
+    
+    // FIX: Use @Environment(Type.self) for @Observable objects
+    @Environment(AppStateManager.self) private var appState
+    @Environment(ThemeManager.self) var theme
+    @Environment(DependencyContainer.self) private var dependencies
 
     @AppStorage("open_fullscreen_player") private var playerMode = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
@@ -20,7 +21,6 @@ struct AuthorDetailView: View {
 
         let container = DependencyContainer.shared
         
-        // FIX: Initialize with State(initialValue:) instead of StateObject
         _viewModel = State(initialValue: AuthorDetailViewModel(
             bookRepository: container.bookRepository,
             libraryRepository: container.libraryRepository,

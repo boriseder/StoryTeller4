@@ -5,17 +5,18 @@ import SwiftUI
 struct StoryTeller4App: App {
     @Environment(\.scenePhase) private var scenePhase
     
-    // Alle diese Objekte sind jetzt MainActor, das ist sicher in SwiftUI Views/App struct
-    @StateObject private var appState = AppStateManager.shared
-    @StateObject private var theme = ThemeManager()
-    @StateObject private var dependencies = DependencyContainer.shared
+    // MIGRATION: Use @State instead of @StateObject for @Observable types
+    @State private var appState = AppStateManager.shared
+    @State private var theme = ThemeManager()
+    @State private var dependencies = DependencyContainer.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(appState)
-                .environmentObject(theme)
-                .environmentObject(dependencies)
+                // MIGRATION: Use modern .environment injection
+                .environment(appState)
+                .environment(theme)
+                .environment(dependencies)
                 .preferredColorScheme(theme.colorScheme)
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                     handleMemoryWarning()
@@ -54,10 +55,8 @@ struct StoryTeller4App: App {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastBackgroundTime")
         AppLogger.general.info("[App] App entered background")
                         
-        // Cache cleanup in background (detached is correct for background work)
         Task.detached(priority: .background) {
             if UserDefaults.standard.bool(forKey: "auto_cache_cleanup") {
-                // Must interact with actor from async context
                 await CoverCacheManager.shared.optimizeCache()
             }
         }
@@ -68,12 +67,10 @@ struct StoryTeller4App: App {
     private func handleMemoryWarning() {
         AppLogger.general.warn("[App] Memory warning received - triggering cleanup")
         
-        // Access MainActor singleton
         Task { @MainActor in
             CoverCacheManager.shared.triggerCriticalCleanup()
         }
         
-        // Access Actor singleton
         Task {
             await CoverDownloadManager.shared.cancelAllDownloads()
         }

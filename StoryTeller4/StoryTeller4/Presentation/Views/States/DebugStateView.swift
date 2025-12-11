@@ -7,51 +7,33 @@ enum DebugSheet: Identifiable {
     var id: Int { hashValue }
 }
 
-struct DebugView: View {
-    @State private var selectedSheet: DebugSheet?
-    @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var downloadManager: DownloadManager
 
+struct DebugStateView: View {
+    @Environment(ThemeManager.self) var theme
+    @Environment(DependencyContainer.self) var dependencies
+    
+    // Derived from dependencies
+    private var downloadManager: DownloadManager { dependencies.downloadManager }
+    
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 12) {
-                    debugButton("ErrorView") { selectedSheet = .error }
-                    debugButton("LoadingView") { selectedSheet = .loading }
-                    debugButton("NetworkErrorView") { selectedSheet = .networkError }
-                    debugButton("NoDownloadsView") { selectedSheet = .noDownloads }
-                }
-                .padding()
+        List {
+            Section("Download Manager") {
+                LabeledContent("Books Downloaded", value: "\(downloadManager.downloadedBooks.count)")
+                LabeledContent("Active Downloads", value: "\(downloadManager.isDownloading.count)")
             }
-            .navigationTitle("Debug View")
-        }
-        .sheet(item: $selectedSheet) { sheet in
-            ZStack {
-                if theme.backgroundStyle == .dynamic {
-                    DynamicBackground()
-                }
-                switch sheet {
-                case .error:
-                    ErrorView(error: "Fehler beim Laden")
-                case .loading:
-                    LoadingView()
-                case .networkError:
-                    NetworkErrorView(
-                        issueType: .serverUnreachable,
-                        onRetry: {},
-                        onViewDownloads: {},
-                        onSettings: {}
-                    )
-                case .noDownloads:
-                    NoDownloadsView()
+            
+            Section("Active Downloads Details") {
+                ForEach(Array(downloadManager.isDownloading.keys), id: \.self) { bookId in
+                    VStack(alignment: .leading) {
+                        Text("Book ID: \(bookId)")
+                            .font(.caption)
+                        if let progress = downloadManager.downloadProgress[bookId] {
+                            ProgressView(value: progress)
+                        }
+                    }
                 }
             }
         }
-    }
-
-    private func debugButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+        .navigationTitle("Debug State")
     }
 }
