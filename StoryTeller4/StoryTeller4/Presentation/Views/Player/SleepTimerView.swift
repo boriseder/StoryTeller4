@@ -152,7 +152,10 @@ struct SleepTimerView: View {
     private var cancelButton: some View {
         Button(action: {
             AppLogger.general.debug("[SleepTimerView] Cancel timer button tapped")
-            sleepTimer.cancelTimer()
+                    // Wrap the async call in a Task
+                    Task {
+                        await sleepTimer.cancelTimer()
+                    }
         }) {
             HStack {
                 Image(systemName: "xmark.circle.fill")

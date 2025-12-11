@@ -61,7 +61,7 @@ struct BookmarkRow: View {
                     HStack(spacing: DSLayout.tightGap) {
                         Image(systemName: "calendar")
                             .font(DSText.metadata)
-                        Text(enriched.bookmark.createdDate.formatted(date: .abbreviated, time: .omitted))
+                        Text(enriched.bookmark.createdAt.formatted(date: .abbreviated, time: .omitted))
                             .font(DSText.metadata)
                     }
                     .foregroundColor(.secondary)

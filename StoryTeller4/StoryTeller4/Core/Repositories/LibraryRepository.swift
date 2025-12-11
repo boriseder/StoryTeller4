@@ -6,6 +6,7 @@ protocol LibraryRepositoryProtocol: Sendable {
     @MainActor func getSelectedLibrary() async throws -> Library?
     @MainActor func selectLibrary(_ libraryId: String)
     @MainActor func clearSelection()
+    @MainActor func initializeLibrarySelection() async throws -> Library?
 }
 
 // MARK: - Library Repository Implementation
@@ -81,6 +82,30 @@ class LibraryRepository: LibraryRepositoryProtocol {
     func clearCache() {
         cachedLibraries = nil
     }
+    
+    func initializeLibrarySelection() async throws -> Library? {
+            let libraries = try await getLibraries()
+            
+            // 1. Check if we have a valid selection already
+            if let selectedId = settingsRepository.getSelectedLibraryId(),
+               let selected = libraries.first(where: { $0.id == selectedId }) {
+                return selected
+            }
+            
+            // 2. Fallback: Look for a library named "default" (case-insensitive)
+            if let defaultLibrary = libraries.first(where: { $0.name.lowercased().contains("default") }) {
+                selectLibrary(defaultLibrary.id)
+                return defaultLibrary
+            }
+            
+            // 3. Fallback: Pick the first available library
+            if let firstLibrary = libraries.first {
+                selectLibrary(firstLibrary.id)
+                return firstLibrary
+            }
+            
+            return nil
+        }
 }
 
 /*

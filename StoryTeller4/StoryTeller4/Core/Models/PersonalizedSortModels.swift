@@ -59,8 +59,6 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
         return .unknown
     }
     
-    // Conversion properties omitted for brevity but should be here if needed
-    
     nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -132,6 +130,7 @@ enum SeriesSortOption: String, CaseIterable, SortOptionProtocol, Sendable {
     }
 }
 
+// MARK: - PersonalizedEntity Conversion Extensions
 extension PersonalizedEntity {
     var asLibraryItem: LibraryItem? {
         guard let media = self.media,
@@ -147,6 +146,44 @@ extension PersonalizedEntity {
             isMissing: nil,
             isInvalid: nil,
             collapsedSeries: self.collapsedSeries
+        )
+    }
+    
+    var asSeries: Series? {
+        guard let books = self.books,
+              let name = self.name else {
+            return nil
+        }
+        
+        return Series(
+            id: self.id,
+            name: name,
+            nameIgnorePrefix: self.nameIgnorePrefix,
+            nameIgnorePrefixSort: nil,
+            numBooks: books.count,
+            books: books,
+            addedAt: self.addedAt ?? Date()
+        )
+    }
+    
+    var asAuthor: Author? {
+        guard let name = self.name,
+              let libraryId = self.libraryId else {
+            return nil
+        }
+        
+        return Author(
+            id: self.id,
+            name: name,
+            description: self.authorDescription,
+            imagePath: self.imagePath,
+            libraryId: libraryId,
+            addedAt: self.addedAt ?? Date(),
+            updatedAt: self.updatedAt ?? Date(),
+            numBooks: self.numBooks,
+            lastFirst: nil,
+            libraryItems: nil,
+            series: nil
         )
     }
 }

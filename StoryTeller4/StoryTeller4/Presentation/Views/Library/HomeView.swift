@@ -276,10 +276,13 @@ struct PersonalizedSectionView: View {
     }
 
     private var seriesSection: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        // Convert to array to avoid lazy filter issues in Swift 6
+        let entities = Array(section.entities)
+        
+        return ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: DSLayout.contentGap) {
-                ForEach(section.entities.indices, id: \.self) { index in
-                    let entity = section.entities[index]
+                ForEach(entities.indices, id: \.self) { index in
+                    let entity = entities[index]
                     
                     SeriesCardView(
                         entity: entity,
@@ -297,9 +300,12 @@ struct PersonalizedSectionView: View {
     }
     
     private var authorsSection: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        // Extract authors from entities
+        let authors = section.entities.compactMap { $0.asAuthor }
+        
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DSLayout.contentGap) {
-                ForEach(section.entities.compactMap { $0.asAuthor }, id: \.id) { author in
+                ForEach(authors, id: \.id) { author in
                     AuthorCardView(
                         author: author,
                         onTap: {
@@ -327,7 +333,8 @@ struct SeriesCardView: View {
             VStack(alignment: .leading, spacing: DSLayout.contentGap) {
                 Group {
                     if let series = entity.asSeries,
-                       let firstBook = series.books.first,
+                       let books = series.books,
+                       let firstBook = books.first,
                        let coverBook = api.converter.convertLibraryItemToBook(firstBook) {
                         
                         BookCoverView.square(

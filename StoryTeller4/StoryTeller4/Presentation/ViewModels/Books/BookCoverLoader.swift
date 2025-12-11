@@ -6,10 +6,12 @@ import Combine
 class BookCoverLoader: ObservableObject {
     @Published var image: UIImage?
     @Published var isLoading = false
+    @Published var hasError = false
     
     private let book: Book
     private let api: AudiobookshelfClient?
     private let downloadManager: DownloadManager?
+    private var loadTask: Task<Void, Never>?
     
     init(book: Book, api: AudiobookshelfClient?, downloadManager: DownloadManager?) {
         self.book = book
@@ -17,28 +19,42 @@ class BookCoverLoader: ObservableObject {
         self.downloadManager = downloadManager
     }
     
-    func loadCover() {
+    func load() {
+        // Cancel any existing load task
+        loadTask?.cancel()
+        
+        // Check caches first
         if let cached = CoverCacheManager.shared.getCachedImage(for: book.id) {
             self.image = cached
+            self.hasError = false
             return
         }
         
         if let diskCached = CoverCacheManager.shared.getDiskCachedImage(for: book.id) {
             self.image = diskCached
+            self.hasError = false
             return
         }
         
-        guard let api = api else { return }
-        guard let coverPath = book.coverPath else { return }
+        guard let api = api else {
+            self.hasError = true
+            return
+        }
+        
+        guard let coverPath = book.coverPath else {
+            self.hasError = true
+            return
+        }
         
         isLoading = true
+        hasError = false
         
-        // Extrahieren für Thread-Safety
+        // Extract for thread-safety
         let baseURL = api.baseURLString
         let token = api.authToken
         let bookId = book.id
         
-        Task {
+        loadTask = Task {
             var downloadedImage: UIImage?
             
             do {
@@ -53,17 +69,28 @@ class BookCoverLoader: ObservableObject {
                 AppLogger.network.error("[BookCoverLoader] Failed to download cover: \(error)")
             }
             
-            let finalImage = downloadedImage
-            Task { @MainActor in
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
                 self.isLoading = false
-                if let image = finalImage {
+                if let image = downloadedImage {
                     self.image = image
+                    self.hasError = false
+                } else {
+                    self.hasError = true
                 }
             }
         }
     }
     
+    func cancelLoading() {
+        loadTask?.cancel()
+        loadTask = nil
+        isLoading = false
+    }
+    
     func preloadCover() {
-        loadCover()
+        load()
     }
 }
