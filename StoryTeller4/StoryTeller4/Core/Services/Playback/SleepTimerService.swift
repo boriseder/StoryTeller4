@@ -32,7 +32,7 @@ enum SleepTimerMode: Equatable, CustomStringConvertible, Sendable {
 }
 
 // MARK: - Sleep Timer Persistence State
-private struct SleepTimerPersistenceState: Codable {
+private struct SleepTimerPersistenceState: Codable, Sendable {
     let endDate: Date
     let mode: String
 }
@@ -204,7 +204,6 @@ class SleepTimerService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // Must hop to MainActor to access self safely
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 guard self.isTimerActive, let mode = self.currentMode else { return }
@@ -218,7 +217,7 @@ class SleepTimerService: ObservableObject {
         requestNotificationPermission()
     }
     
-    private func requestNotificationPermission() {
+    private nonisolated func requestNotificationPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error = error {
                 AppLogger.general.debug("[SleepTimer] Notification permission error: \(error)")
@@ -228,7 +227,7 @@ class SleepTimerService: ObservableObject {
         }
     }
     
-    private func scheduleTimerEndNotification(fireDate: Date) {
+    private nonisolated func scheduleTimerEndNotification(fireDate: Date) {
         let content = UNMutableNotificationContent()
         content.title = "Sleep Timer"
         content.body = "Playback has been paused"
@@ -255,7 +254,7 @@ class SleepTimerService: ObservableObject {
         }
     }
     
-    private func cancelTimerEndNotification() {
+    private nonisolated func cancelTimerEndNotification() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: ["sleep_timer_end"]
         )
@@ -284,11 +283,11 @@ class SleepTimerService: ObservableObject {
     
     deinit {
         let service = timerService
-        // Fire and forget cancellation
         Task.detached {
             await service.cancel()
         }
         
+        // Use Task.detached for logging since we're in deinit
         Task.detached {
             AppLogger.general.debug("[SleepTimer] Deinitialized")
         }

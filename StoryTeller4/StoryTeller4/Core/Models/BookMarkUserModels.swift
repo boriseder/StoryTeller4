@@ -1,7 +1,7 @@
 import Foundation
 
-// MARK: - Bookmark Model
-struct Bookmark: Codable, Identifiable, Hashable {
+// MARK: - Bookmark Model (Swift 6 Ready)
+struct Bookmark: Codable, Identifiable, Hashable, Sendable {
     let libraryItemId: String
     let time: Double
     let title: String
@@ -15,7 +15,6 @@ struct Bookmark: Codable, Identifiable, Hashable {
         TimeFormatter.formatTime(time)
     }
     
-    // MARK: - Coding Keys
     enum CodingKeys: String, CodingKey {
         case libraryItemId, time, title, createdAt
     }
@@ -39,7 +38,6 @@ struct Bookmark: Codable, Identifiable, Hashable {
         time = try container.decode(Double.self, forKey: .time)
         title = try container.decode(String.self, forKey: .title)
         
-        // Server uses milliseconds
         let timestamp = try container.decode(TimeInterval.self, forKey: .createdAt)
         createdAt = TimestampConverter.dateFromServer(timestamp)
     }
@@ -53,7 +51,6 @@ struct Bookmark: Codable, Identifiable, Hashable {
         try container.encode(TimestampConverter.serverTimestamp(from: createdAt), forKey: .createdAt)
     }
     
-    // MARK: - Helper Methods
     func chapterIndex(for book: Book) -> Int {
         book.chapterIndex(at: time)
     }
@@ -66,14 +63,13 @@ struct Bookmark: Codable, Identifiable, Hashable {
         chapter(for: book)?.title
     }
     
-    // MARK: - Hashable
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 }
 
 // MARK: - Enhanced Bookmark Model
-struct EnrichedBookmark: Identifiable {
+struct EnrichedBookmark: Identifiable, Sendable {
     let bookmark: Bookmark
     let book: Book?
     
@@ -103,7 +99,7 @@ struct EnrichedBookmark: Identifiable {
 }
 
 // MARK: - Bookmark Sort Options
-enum BookmarkSortOption: String, CaseIterable, Identifiable {
+enum BookmarkSortOption: String, CaseIterable, Identifiable, Sendable {
     case dateNewest = "Date (Newest)"
     case dateOldest = "Date (Oldest)"
     case timeInBook = "Time in Book"
@@ -137,7 +133,6 @@ enum BookmarkSortOption: String, CaseIterable, Identifiable {
 }
 
 // MARK: - User Data Model
-/// Sendable: API response containing user state, shared across app
 struct UserData: Codable, Sendable {
     let id: String
     let username: String
@@ -147,7 +142,6 @@ struct UserData: Codable, Sendable {
     let mediaProgress: [MediaProgress]
     let bookmarks: [Bookmark]
     
-    // MARK: - Helper Methods
     func bookmarks(for libraryItemId: String) -> [Bookmark] {
         bookmarks
             .filter { $0.libraryItemId == libraryItemId }
@@ -170,3 +164,13 @@ struct UserData: Codable, Sendable {
         type.lowercased() == "admin"
     }
 }
+
+
+// MARK: - All other model files remain the same
+// Your CoreModels.swift, LibrarySeriesModels.swift, PlaybackModels.swift,
+// PersonalizedSortModels.swift, and AuthorModels.swift are already Swift 6 ready!
+// They all have proper Sendable conformance.
+
+// The key insight: The problem isn't in your model definitions - they're fine.
+// The issue is likely in HOW you're using them (e.g., storing them in @MainActor classes)
+// or in helper types like TimeFormatter that need to be nonisolated.

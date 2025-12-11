@@ -16,6 +16,11 @@ enum RepositoryError: LocalizedError, Sendable {
     case networkError(Error), decodingError(Error), notFound, invalidData, unauthorized, serverError(Int)
 }
 
+// MARK: - Helper Types (Top Level)
+struct LocalCacheMetadata: Codable, Sendable {
+    let timestamp: Date
+}
+
 // MARK: - Implementation
 final class BookRepository: BookRepositoryProtocol, Sendable {
     
@@ -30,7 +35,6 @@ final class BookRepository: BookRepositoryProtocol, Sendable {
     func fetchBooks(libraryId: String, collapseSeries: Bool) async throws -> [Book] {
         let books = try await api.books.fetchBooks(libraryId: libraryId, limit: 0, collapseSeries: collapseSeries)
         await cache?.cacheBooks(books, for: libraryId)
-        AppLogger.general.debug("[BookRepo] Fetched \(books.count) books")
         return books
     }
     
@@ -47,7 +51,7 @@ final class BookRepository: BookRepositoryProtocol, Sendable {
     }
     
     func fetchSeriesBooks(libraryId: String, seriesId: String) async throws -> [Book] {
-        return try await api.series.fetchSeriesBooks(libraryId: libraryId, seriesId: seriesId)
+        try await api.series.fetchSeriesBooks(libraryId: libraryId, seriesId: seriesId)
     }
     
     func fetchPersonalizedSections(libraryId: String) async throws -> [PersonalizedSection] {
@@ -99,7 +103,6 @@ actor BookCache: BookCacheProtocol {
     private var authorsCache: [String: [Author]] = [:]
     private var authorDetailsCache: [String: Author] = [:]
     
-    private let fileManager = FileManager.default
     private let diskCacheURL: URL
     private let maxCacheAge: TimeInterval = 24 * 60 * 60
     
@@ -110,19 +113,27 @@ actor BookCache: BookCacheProtocol {
         try? fm.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
     }
     
+    // MARK: - Caching Methods
+    
     func cacheBooks(_ books: [Book], for libraryId: String) {
         self.booksCache[libraryId] = books
-        saveToDisk(books, key: "books_\(libraryId)")
+        Task.detached { [diskCacheURL] in
+            await Self.saveToDisk(books, key: "books_\(libraryId)", at: diskCacheURL)
+        }
     }
     
     func cacheBook(_ book: Book) {
         self.bookDetailsCache[book.id] = book
-        saveToDisk(book, key: "book_\(book.id)")
+        Task.detached { [diskCacheURL] in
+            await Self.saveToDisk(book, key: "book_\(book.id)", at: diskCacheURL)
+        }
     }
     
     func getCachedBooks(for libraryId: String) -> [Book]? {
         if let cached = booksCache[libraryId] { return cached }
-        if let diskCached: [Book] = loadFromDisk(key: "books_\(libraryId)") {
+        
+        // Disk loading happens synchronously in the actor
+        if let diskCached: [Book] = Self.loadFromDiskSync(key: "books_\(libraryId)", at: diskCacheURL, maxAge: maxCacheAge) {
             booksCache[libraryId] = diskCached
             return diskCached
         }
@@ -131,7 +142,8 @@ actor BookCache: BookCacheProtocol {
     
     func getCachedBook(bookId: String) -> Book? {
         if let cached = bookDetailsCache[bookId] { return cached }
-        if let diskCached: Book = loadFromDisk(key: "book_\(bookId)") {
+        
+        if let diskCached: Book = Self.loadFromDiskSync(key: "book_\(bookId)", at: diskCacheURL, maxAge: maxCacheAge) {
             bookDetailsCache[bookId] = diskCached
             return diskCached
         }
@@ -140,12 +152,15 @@ actor BookCache: BookCacheProtocol {
     
     func cacheAuthors(_ authors: [Author], for libraryId: String) {
         self.authorsCache[libraryId] = authors
-        saveToDisk(authors, key: "authors_\(libraryId)")
+        Task.detached { [diskCacheURL] in
+            await Self.saveToDisk(authors, key: "authors_\(libraryId)", at: diskCacheURL)
+        }
     }
     
     func getCachedAuthors(for libraryId: String) -> [Author]? {
         if let cached = authorsCache[libraryId] { return cached }
-        if let diskCached: [Author] = loadFromDisk(key: "authors_\(libraryId)") {
+        
+        if let diskCached: [Author] = Self.loadFromDiskSync(key: "authors_\(libraryId)", at: diskCacheURL, maxAge: maxCacheAge) {
             authorsCache[libraryId] = diskCached
             return diskCached
         }
@@ -154,12 +169,15 @@ actor BookCache: BookCacheProtocol {
     
     func cacheAuthorDetails(_ author: Author, authorId: String) {
         self.authorDetailsCache[authorId] = author
-        saveToDisk(author, key: "author_details_\(authorId)")
+        Task.detached { [diskCacheURL] in
+            await Self.saveToDisk(author, key: "author_details_\(authorId)", at: diskCacheURL)
+        }
     }
     
     func getCachedAuthorDetails(authorId: String) -> Author? {
         if let cached = authorDetailsCache[authorId] { return cached }
-        if let diskCached: Author = loadFromDisk(key: "author_details_\(authorId)") {
+        
+        if let diskCached: Author = Self.loadFromDiskSync(key: "author_details_\(authorId)", at: diskCacheURL, maxAge: maxCacheAge) {
             authorDetailsCache[authorId] = diskCached
             return diskCached
         }
@@ -168,12 +186,15 @@ actor BookCache: BookCacheProtocol {
 
     func cacheSections(_ sections: [PersonalizedSection], for libraryId: String) {
         self.sectionsCache[libraryId] = sections
-        saveToDisk(sections, key: "sections_\(libraryId)")
+        Task.detached { [diskCacheURL] in
+            await Self.saveToDisk(sections, key: "sections_\(libraryId)", at: diskCacheURL)
+        }
     }
     
     func getCachedSections(for libraryId: String) -> [PersonalizedSection]? {
         if let cached = sectionsCache[libraryId] { return cached }
-        if let diskCached: [PersonalizedSection] = loadFromDisk(key: "sections_\(libraryId)") {
+        
+        if let diskCached: [PersonalizedSection] = Self.loadFromDiskSync(key: "sections_\(libraryId)", at: diskCacheURL, maxAge: maxCacheAge) {
             sectionsCache[libraryId] = diskCached
             return diskCached
         }
@@ -182,12 +203,15 @@ actor BookCache: BookCacheProtocol {
     
     func cacheSeries(_ series: [Series], for libraryId: String) {
         self.seriesCache[libraryId] = series
-        saveToDisk(series, key: "series_\(libraryId)")
+        Task.detached { [diskCacheURL] in
+            await Self.saveToDisk(series, key: "series_\(libraryId)", at: diskCacheURL)
+        }
     }
     
     func getCachedSeries(for libraryId: String) -> [Series]? {
         if let cached = seriesCache[libraryId] { return cached }
-        if let diskCached: [Series] = loadFromDisk(key: "series_\(libraryId)") {
+        
+        if let diskCached: [Series] = Self.loadFromDiskSync(key: "series_\(libraryId)", at: diskCacheURL, maxAge: maxCacheAge) {
             seriesCache[libraryId] = diskCached
             return diskCached
         }
@@ -201,35 +225,55 @@ actor BookCache: BookCacheProtocol {
         seriesCache.removeAll()
         authorsCache.removeAll()
         authorDetailsCache.removeAll()
-        try? fileManager.removeItem(at: diskCacheURL)
-        try? fileManager.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
+        
+        let url = diskCacheURL
+        Task.detached {
+            let fm = FileManager.default
+            try? fm.removeItem(at: url)
+            try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+            
+            AppLogger.general.debug("[BookCache] Cache cleared")
+        }
     }
 
-    private func saveToDisk<T: Encodable & Sendable>(_ data: T, key: String) {
-        let fileURL = diskCacheURL.appendingPathComponent("\(key).json")
+    // MARK: - Private Disk I/O Methods
+    
+    // Static methods to avoid actor isolation issues
+    private static func saveToDisk<T: Encodable & Sendable>(_ data: T, key: String, at cacheURL: URL) async {
+        let fileURL = cacheURL.appendingPathComponent("\(key).json")
         guard let encoded = try? JSONEncoder().encode(data) else { return }
+        
         try? encoded.write(to: fileURL)
-        let metadata = CacheMetadata(timestamp: Date())
-        let metadataURL = diskCacheURL.appendingPathComponent("\(key)_metadata.json")
+        
+        // Save metadata
+        let metadata = LocalCacheMetadata(timestamp: Date())
+        let metadataURL = cacheURL.appendingPathComponent("\(key)_metadata.json")
         if let metadataData = try? JSONEncoder().encode(metadata) {
             try? metadataData.write(to: metadataURL)
         }
     }
     
-    private func loadFromDisk<T: Decodable & Sendable>(key: String) -> T? {
-        let fileURL = diskCacheURL.appendingPathComponent("\(key).json")
-        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+    private static func loadFromDiskSync<T: Decodable & Sendable>(key: String, at cacheURL: URL, maxAge: TimeInterval) -> T? {
+        let fileURL = cacheURL.appendingPathComponent("\(key).json")
+        let fm = FileManager.default
         
-        let metadataURL = diskCacheURL.appendingPathComponent("\(key)_metadata.json")
+        guard fm.fileExists(atPath: fileURL.path) else { return nil }
+        
+        // Check expiry
+        let metadataURL = cacheURL.appendingPathComponent("\(key)_metadata.json")
         if let metaData = try? Data(contentsOf: metadataURL),
-           let metadata = try? JSONDecoder().decode(CacheMetadata.self, from: metaData),
-           Date().timeIntervalSince(metadata.timestamp) > maxCacheAge {
-            try? fileManager.removeItem(at: fileURL)
-            try? fileManager.removeItem(at: metadataURL)
+           let metadata = try? JSONDecoder().decode(LocalCacheMetadata.self, from: metaData),
+           Date().timeIntervalSince(metadata.timestamp) > maxAge {
+            try? fm.removeItem(at: fileURL)
+            try? fm.removeItem(at: metadataURL)
             return nil
         }
+        
         guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder().decode(T.self, from: data) else { return nil }
+              let decoded = try? JSONDecoder().decode(T.self, from: data) else {
+            return nil
+        }
+        
         return decoded
     }
 }

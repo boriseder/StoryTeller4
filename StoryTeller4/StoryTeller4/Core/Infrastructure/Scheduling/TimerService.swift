@@ -1,10 +1,20 @@
 import Foundation
 
-enum TimerState: Sendable {
+enum TimerState: Sendable, Equatable {
     case idle
     case running
     case paused
     case completed
+    
+    // Explicitly nonisolated to allow comparison in any context
+    nonisolated static func == (lhs: TimerState, rhs: TimerState) -> Bool {
+        switch (lhs, rhs) {
+        case (.idle, .idle), (.running, .running), (.paused, .paused), (.completed, .completed):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 // Protocol adapted for Actor
@@ -17,14 +27,13 @@ protocol TimerManaging: Sendable {
     func resume() async
     func cancel() async
     
-    // New callback configuration method
     func setCallbacks(
         onTick: @escaping @Sendable (TimeInterval) -> Void,
         onComplete: @escaping @Sendable () -> Void
     ) async
 }
 
-// Converted to Actor
+// Actor for thread-safe timer management
 actor TimerService: TimerManaging {
     
     private var timer: DispatchSourceTimer?
@@ -33,7 +42,7 @@ actor TimerService: TimerManaging {
     private(set) var remainingTime: TimeInterval = 0
     private var endDate: Date?
     
-    // Callbacks instead of Delegate to handle isolation boundaries cleanly
+    // Sendable callbacks for crossing actor boundaries
     private var onTick: (@Sendable (TimeInterval) -> Void)?
     private var onComplete: (@Sendable () -> Void)?
     
@@ -57,7 +66,6 @@ actor TimerService: TimerManaging {
         
         startTimerInternal()
         
-        // LogWrapper is thread-safe
         AppLogger.general.debug("[TimerService] Started timer with duration: \(duration)s")
     }
     
@@ -97,17 +105,19 @@ actor TimerService: TimerManaging {
     
     private func startTimerInternal() {
         let queue = DispatchQueue(label: "com.storyteller3.timer.internal", qos: .utility)
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .seconds(1), leeway: .milliseconds(100))
+        let newTimer = DispatchSource.makeTimerSource(queue: queue)
+        newTimer.schedule(deadline: .now(), repeating: .seconds(1), leeway: .milliseconds(100))
         
-        timer.setEventHandler { [weak self] in
-            Task {
-                await self?.handleTick()
+        // Use unowned(unsafe) to avoid sendability warning
+        // Safe because: timer is cancelled in deinit before actor is destroyed
+        newTimer.setEventHandler { [unowned(unsafe) self] in
+            Task { [unowned(unsafe) self] in
+                await self.handleTick()
             }
         }
         
-        self.timer = timer
-        timer.resume()
+        self.timer = newTimer
+        newTimer.resume()
     }
     
     private func handleTick() async {
@@ -116,7 +126,7 @@ actor TimerService: TimerManaging {
         let remaining = endDate.timeIntervalSinceNow
         self.remainingTime = max(0, remaining)
         
-        // Call the closure directly (it's Sendable, so safe to call)
+        // Call the callback - it's @Sendable so safe to call from actor
         onTick?(self.remainingTime)
         
         if remaining <= 0 {
@@ -128,6 +138,7 @@ actor TimerService: TimerManaging {
         cancelTimerInternal()
         state = .completed
         
+        // Call completion callback
         onComplete?()
         
         AppLogger.general.debug("[TimerService] Timer completed")

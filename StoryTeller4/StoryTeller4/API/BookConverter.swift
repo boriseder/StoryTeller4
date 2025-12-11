@@ -1,10 +1,10 @@
 import Foundation
 
-protocol BookConverterProtocol {
+protocol BookConverterProtocol: Sendable {
     func convertLibraryItemToBook(_ item: LibraryItem) -> Book?
 }
 
-class DefaultBookConverter: BookConverterProtocol {
+final class DefaultBookConverter: BookConverterProtocol, Sendable {
     
     func convertLibraryItemToBook(_ item: LibraryItem) -> Book? {
         let chapters: [Chapter] = {
@@ -26,7 +26,8 @@ class DefaultBookConverter: BookConverterProtocol {
                         title: track.title ?? "Kapitel \(index + 1)",
                         start: track.startOffset,
                         end: track.startOffset + track.duration,
-                        libraryItemId: item.id
+                        libraryItemId: item.id,
+                        episodeId: nil // Fix: Explicitly pass nil
                     )
                 }
             } else {
@@ -35,7 +36,8 @@ class DefaultBookConverter: BookConverterProtocol {
                     title: item.media.metadata.title,
                     start: 0,
                     end: item.media.duration ?? 3600,
-                    libraryItemId: item.id
+                    libraryItemId: item.id,
+                    episodeId: nil // Fix: Explicitly pass nil
                 )]
             }
         }()

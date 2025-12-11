@@ -1,5 +1,6 @@
 import Foundation
 
+// MARK: - Series Model
 struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
@@ -39,8 +40,12 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         nameIgnorePrefixSort = try container.decodeIfPresent(String.self, forKey: .nameIgnorePrefixSort)
         numBooks = try container.decode(Int.self, forKey: .numBooks)
         books = try container.decodeIfPresent([LibraryItem].self, forKey: .books)
-        if let timestamp = try? container.decode(TimeInterval.self, forKey: .addedAt) { addedAt = TimestampConverter.dateFromServer(timestamp) }
-        else { addedAt = Date() }
+        
+        if let timestamp = try? container.decode(TimeInterval.self, forKey: .addedAt) {
+            addedAt = TimestampConverter.dateFromServer(timestamp)
+        } else {
+            addedAt = Date()
+        }
     }
     
     func encode(to encoder: Encoder) throws {
@@ -58,6 +63,7 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+// MARK: - LibraryItem Model
 struct LibraryItem: Codable, Identifiable, Sendable, Hashable {
     let id: String
     let media: Media
@@ -74,6 +80,7 @@ struct LibraryItem: Codable, Identifiable, Sendable, Hashable {
     var coverPath: String? { collapsedSeries?.coverPath ?? media.coverPath }
 }
 
+// MARK: - Book Model
 struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     let id: String
     let title: String
@@ -90,10 +97,18 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
         guard let coverPath = coverPath else { return nil }
         return URL(string: "\(baseURL)\(coverPath)")
     }
-    func chapter(at time: Double) -> Chapter? { chapters.first { $0.contains(time: time) } }
-    func chapterIndex(at time: Double) -> Int { chapters.firstIndex { $0.contains(time: time) } ?? max(0, chapters.count - 1) }
     
-    enum CodingKeys: String, CodingKey { case id, title, author, chapters, coverPath, collapsedSeries }
+    func chapter(at time: Double) -> Chapter? {
+        chapters.first { $0.contains(time: time) }
+    }
+    
+    func chapterIndex(at time: Double) -> Int {
+        chapters.firstIndex { $0.contains(time: time) } ?? max(0, chapters.count - 1)
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, title, author, chapters, coverPath, collapsedSeries
+    }
     
     init(id: String, title: String, author: String?, chapters: [Chapter], coverPath: String?, collapsedSeries: Series?) {
         self.id = id
@@ -128,19 +143,28 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+// MARK: - Library Models
 struct Library: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let name: String
     let mediaType: String?
+    
     var isAudiobook: Bool { mediaType == "book" }
     var isPodcast: Bool { mediaType == "podcast" }
 }
 
-struct LibrariesResponse: Codable, Sendable { let libraries: [Library] }
+// MARK: - Response Wrappers
+struct LibrariesResponse: Codable, Sendable {
+    let libraries: [Library]
+}
+
 struct LibraryItemsResponse: Decodable, Sendable {
     let results: [LibraryItem]
     let total: Int?
     let limit: Int?
     let page: Int?
 }
-struct SeriesResponse: Decodable, Sendable { let results: [Series] }
+
+struct SeriesResponse: Decodable, Sendable {
+    let results: [Series]
+}

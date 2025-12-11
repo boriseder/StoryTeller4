@@ -1,11 +1,8 @@
 import Foundation
 
-// MARK: - Time Formatting Utilities
 struct TimeFormatter: Sendable {
-    
     static func formatTime(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
-        
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
@@ -29,14 +26,14 @@ struct TimeFormatter: Sendable {
     
     static func formatTimeCompact(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0m" }
-        let totalSeconds = Int(seconds)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
         
-        if hours > 0 {
-            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        if h > 0 {
+            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
         } else {
-            return minutes > 0 ? "\(minutes)m" : "< 1m"
+            return m > 0 ? "\(m)m" : "< 1m"
         }
     }
     
@@ -49,6 +46,7 @@ struct TimeFormatter: Sendable {
     }
 }
 
+// MARK: - Double Extension
 extension Double {
     var formattedAsTime: String { TimeFormatter.formatTime(self) }
     var formattedAsCompactTime: String { TimeFormatter.formatTimeCompact(self) }
