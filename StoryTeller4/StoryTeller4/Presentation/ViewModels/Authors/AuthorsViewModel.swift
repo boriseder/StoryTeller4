@@ -79,3 +79,16 @@ class AuthorsViewModel: ObservableObject {
         AppLogger.general.debug("[AuthorsViewModel] Repository error: \(error)")
     }
 }
+
+extension AuthorsViewModel {
+    @MainActor
+    static var placeholder: AuthorsViewModel {
+        AuthorsViewModel(
+            fetchAuthorsUseCase: FetchAuthorsUseCase(
+                bookRepository: BookRepository.placeholder
+            ),
+            libraryRepository: LibraryRepository.placeholder,
+            api: AudiobookshelfClient(baseURL: "", authToken: "")
+        )
+    }
+}

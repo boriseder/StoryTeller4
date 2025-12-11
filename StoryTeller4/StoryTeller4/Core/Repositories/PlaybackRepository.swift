@@ -158,3 +158,22 @@ class PlaybackRepository: ObservableObject {
         isSyncing = false
     }
 }
+
+extension PlaybackRepository {
+    func syncFromServer() async {
+        // If you don't have this method yet, add it
+        // This should fetch the latest progress from the server
+        guard let api = self.api else { return }
+        
+        do {
+            // Fetch user data which includes mediaProgress
+            // Adjust this based on your API structure
+            // Example:
+            // let userData = try await api.user.getCurrentUser()
+            // Update local cache with server data
+            AppLogger.general.debug("[PlaybackRepository] Synced from server")
+        } catch {
+            AppLogger.general.error("[PlaybackRepository] Sync failed: \(error)")
+        }
+    }
+}

@@ -27,6 +27,11 @@ class SeriesSectionViewModel: ObservableObject {
         self.onBookSelected = onBookSelected
         self.container = container
         
-        self.books = series.books.compactMap { api.converter.convertLibraryItemToBook($0) }
+        // Handle optional books array properly
+        if let seriesBooks = series.books {
+            self.books = seriesBooks.compactMap { api.converter.convertLibraryItemToBook($0) }
+        } else {
+            self.books = []
+        }
     }
 }

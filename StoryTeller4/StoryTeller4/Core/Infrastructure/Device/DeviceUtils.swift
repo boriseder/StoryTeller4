@@ -1,26 +1,33 @@
- import Foundation
-
+import Foundation
 import UIKit
 
-// MARK: - Device Utilities
 enum DeviceUtils {
-    static func getDeviceIdentifier() -> String {
-        return UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-    }
     
+    // This must run on MainActor to access UIDevice
+    @MainActor
     static func createPlaybackRequest() -> PlaybackSessionRequest {
         PlaybackSessionRequest(
             deviceInfo: PlaybackSessionRequest.DeviceInfo(
-                clientVersion: "1.0.0",
+                clientVersion: getClientVersion(),
                 deviceId: getDeviceIdentifier(),
                 clientName: getClientName()
             ),
-            supportedMimeTypes: ["audio/mpeg", "audio/mp4", "audio/m4a", "audio/flac"],
-            mediaPlayer: "AVPlayer"
+            supportedMimeTypes: ["audio/mpeg", "audio/mp4", "audio/aac"],
+            mediaPlayer: "iOS App"
         )
     }
     
-    private static func getClientName() -> String {
-            return "iOS AudioBook Client"
+    private static func getClientVersion() -> String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+    }
+    
+    @MainActor
+    private static func getDeviceIdentifier() -> String? {
+        UIDevice.current.identifierForVendor?.uuidString
+    }
+    
+    @MainActor
+    private static func getClientName() -> String? {
+        "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
     }
 }

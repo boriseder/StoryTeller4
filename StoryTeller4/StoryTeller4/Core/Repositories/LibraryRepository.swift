@@ -82,3 +82,15 @@ class LibraryRepository: LibraryRepositoryProtocol {
         cachedLibraries = nil
     }
 }
+
+/*
+ Creates empty "placeholder" instances that are used when the API isn't configured yet.
+ This prevents crashes while keeping error logging.
+ */
+extension LibraryRepository {
+    @MainActor
+    static var placeholder: LibraryRepository {
+        LibraryRepository(api: AudiobookshelfClient(baseURL: "", authToken: ""),
+                         settingsRepository: SettingsRepository())
+    }
+}

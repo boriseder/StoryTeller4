@@ -1,6 +1,6 @@
 import Foundation
 
-protocol FetchPersonalizedSectionsUseCaseProtocol {
+protocol FetchPersonalizedSectionsUseCaseProtocol: Sendable {
     func execute(libraryId: String) async throws -> [PersonalizedSection]
 }
 

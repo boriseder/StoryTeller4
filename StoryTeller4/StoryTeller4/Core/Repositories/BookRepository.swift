@@ -277,3 +277,15 @@ actor BookCache: BookCacheProtocol {
         return decoded
     }
 }
+
+/*
+ Creates empty "placeholder" instances that are used when the API isn't configured yet.
+ This prevents crashes while keeping error logging.
+ */
+extension BookRepository {
+    @MainActor
+    static var placeholder: BookRepository {
+        // Use a dummy API client that won't be used
+        BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: ""))
+    }
+}

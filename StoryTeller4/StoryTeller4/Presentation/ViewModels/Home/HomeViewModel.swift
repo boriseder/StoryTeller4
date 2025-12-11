@@ -227,3 +227,21 @@ class HomeViewModel: ObservableObject {
     }
 }
 
+extension HomeViewModel {
+    @MainActor
+    static var placeholder: HomeViewModel {
+        HomeViewModel(
+            fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCase(
+                bookRepository: BookRepository.placeholder
+            ),
+            downloadRepository: DefaultDownloadRepository.placeholder,  // ✅ Use concrete type
+            libraryRepository: LibraryRepository.placeholder,
+            bookRepository: BookRepository.placeholder,
+            api: AudiobookshelfClient(baseURL: "", authToken: ""),
+            downloadManager: DownloadManager(),
+            player: AudioPlayer(),
+            appState: AppStateManager.shared,
+            onBookSelected: {}
+        )
+    }
+}

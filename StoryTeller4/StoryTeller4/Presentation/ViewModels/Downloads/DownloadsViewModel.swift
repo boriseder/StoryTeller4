@@ -191,3 +191,17 @@ class DownloadsViewModel: ObservableObject {
         storageUpdateTimer = nil
     }
 }
+
+extension DownloadsViewModel {
+    @MainActor
+    static var placeholder: DownloadsViewModel {
+        DownloadsViewModel(
+            downloadManager: DownloadManager(),
+            player: AudioPlayer(),
+            api: AudiobookshelfClient(baseURL: "", authToken: ""),
+            appState: AppStateManager.shared,
+            storageMonitor: StorageMonitor(),
+            onBookSelected: {}
+        )
+    }
+}

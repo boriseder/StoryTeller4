@@ -1,10 +1,10 @@
 import Foundation
 
-protocol LogoutUseCaseProtocol {
+protocol LogoutUseCaseProtocol: Sendable {
     func execute() async throws
 }
 
-class LogoutUseCase: LogoutUseCaseProtocol {
+final class LogoutUseCase: LogoutUseCaseProtocol, Sendable {
     private let keychainService: KeychainService
     
     init(keychainService: KeychainService = KeychainService.shared) {
@@ -12,8 +12,10 @@ class LogoutUseCase: LogoutUseCaseProtocol {
     }
     
     func execute() async throws {
+        // 1. Clear keychain credentials
         try keychainService.clearAllCredentials()
         
+        // 2. Clear UserDefaults and post notification on MainActor
         await MainActor.run {
             UserDefaults.standard.removeObject(forKey: "server_scheme")
             UserDefaults.standard.removeObject(forKey: "server_host")
@@ -23,13 +25,18 @@ class LogoutUseCase: LogoutUseCaseProtocol {
             UserDefaults.standard.removeObject(forKey: "apiKey")
             UserDefaults.standard.removeObject(forKey: "selected_library_id")
             
-            // Reset DependencyContainer to clear all repositories
-            DependencyContainer.shared.reset()
-            
             NotificationCenter.default.post(name: .init("ServerSettingsChanged"), object: nil)
         }
         
+        // 3. Reset container (if it's NOT async, don't await)
+        // Check if reset() is actually async. If not:
+        await MainActor.run {
+            DependencyContainer.shared.reset()
+        }
+        
+        // 4. Shutdown cover manager
         await CoverDownloadManager.shared.shutdown()
         
         AppLogger.general.debug("[LogoutUseCase] User logged out successfully")
-    }}
+    }
+}

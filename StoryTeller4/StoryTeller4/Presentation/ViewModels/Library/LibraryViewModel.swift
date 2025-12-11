@@ -232,3 +232,21 @@ class LibraryViewModel: ObservableObject {
         AppLogger.general.debug("[LibraryViewModel] Repository error: \(error)")
     }
 }
+
+extension LibraryViewModel {
+    @MainActor
+    static var placeholder: LibraryViewModel {
+        LibraryViewModel(
+            fetchBooksUseCase: FetchBooksUseCase(
+                bookRepository: BookRepository.placeholder
+            ),
+            downloadRepository: DefaultDownloadRepository.placeholder,  // ✅ Use concrete type
+            libraryRepository: LibraryRepository.placeholder,
+            api: AudiobookshelfClient(baseURL: "", authToken: ""),
+            downloadManager: DownloadManager(),
+            player: AudioPlayer(),
+            appState: AppStateManager.shared,
+            onBookSelected: {}
+        )
+    }
+}

@@ -1,6 +1,6 @@
 import Foundation
 
-protocol FetchSeriesUseCaseProtocol {
+protocol FetchSeriesUseCaseProtocol: Sendable {
     func execute(libraryId: String) async throws -> [Series]
 }
 

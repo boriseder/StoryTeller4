@@ -131,3 +131,22 @@ enum SeriesSortOption: String, CaseIterable, SortOptionProtocol, Sendable {
         }
     }
 }
+
+extension PersonalizedEntity {
+    var asLibraryItem: LibraryItem? {
+        guard let media = self.media,
+              let libraryId = self.libraryId else {
+            return nil
+        }
+        
+        return LibraryItem(
+            id: self.id,
+            media: media,
+            libraryId: libraryId,
+            isFile: nil,
+            isMissing: nil,
+            isInvalid: nil,
+            collapsedSeries: self.collapsedSeries
+        )
+    }
+}

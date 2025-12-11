@@ -213,10 +213,56 @@ final class DefaultDownloadRepository: DownloadRepository {
     
     deinit {
         let service = healingService
-        // Fix: Use MainActor task to call methods on main-actor isolated property
         Task { @MainActor in
             service.stop()
         }
         for (_, task) in downloadTasks { task.cancel() }
+    }
+    
+    // Placeholder for use in ViewModels
+    @MainActor
+    static let placeholder: DefaultDownloadRepository = {
+        // Create concrete implementations of services
+        let storageService = DefaultDownloadStorageService()
+        let networkService = DefaultDownloadNetworkService()
+        let validationService = DefaultDownloadValidationService()
+        let retryPolicy = ExponentialBackoffRetryPolicy()
+        
+        let orchestrationService = DefaultDownloadOrchestrationService(
+            networkService: networkService,
+            storageService: storageService,
+            retryPolicy: retryPolicy,
+            validationService: validationService
+        )
+        
+        let downloadManager = DownloadManager()
+        
+        let healingService = DefaultBackgroundHealingService(
+            storageService: storageService,
+            validationService: validationService,
+            onBookRemoved: { bookId in
+                Task { @MainActor in
+                    downloadManager.downloadedBooks.removeAll { $0.id == bookId }
+                }
+            }
+        )
+        
+        return DefaultDownloadRepository(
+            orchestrationService: orchestrationService,
+            storageService: storageService,
+            validationService: validationService,
+            healingService: healingService,
+            downloadManager: downloadManager
+        )
+    }()
+}
+
+// MARK: - Protocol Extension for Placeholder Access
+
+// This allows protocol-typed properties to access placeholder
+extension DownloadRepository where Self == DefaultDownloadRepository {
+    @MainActor
+    static var placeholder: DefaultDownloadRepository {
+        DefaultDownloadRepository.placeholder
     }
 }

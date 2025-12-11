@@ -476,15 +476,20 @@ final class DependencyContainer: ObservableObject {
     func reset() {
         AppLogger.general.info("[Container] Factory reset initiated")
 
-        // Clear caches
-        bookRepository.clearCache()
-        libraryRepository.clearCache()
+        // Launch async operations in background tasks
+        Task {
+            await bookRepository.clearCache()
+        }
+        
+        Task {
+            await libraryRepository.clearCache()
+        }
+        
         bookmarkRepository.clearCache()
         
         resetRepositories()
         resetViewModels()
         
-        // Clear bookmark enrichment cache
         bookLookupCache.removeAll()
         cancellables.removeAll()
         
@@ -493,4 +498,5 @@ final class DependencyContainer: ObservableObject {
 
         AppLogger.general.info("[Container] All repositories and ViewModels reset")
     }
+
 }
