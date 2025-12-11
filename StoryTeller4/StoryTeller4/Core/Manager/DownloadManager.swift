@@ -89,56 +89,27 @@ class DownloadManager: ObservableObject {
     @Published var downloadStatus: [String: String] = [:]
     @Published var downloadStage: [String: DownloadStage] = [:]
     
+    // Changed to simple property injection
     internal private(set) var repository: DownloadRepository?
     
-    init(repository: DownloadRepository? = nil) {
-        if let repository = repository {
-            self.repository = repository
-        } else {
-            Task { @MainActor in
-                self.setupDefaultRepository()
-            }
-        }
-        AppLogger.general.debug("[DownloadManager] Initialized")
+    init() {
+        // No side effects in init!
+        AppLogger.general.debug("[DownloadManager] Initialized (Waiting for configuration)")
     }
     
-    private func setupDefaultRepository() {
-        guard repository == nil else { return }
-        
-        let networkService = DefaultDownloadNetworkService()
-        let storageService = DefaultDownloadStorageService()
-        let retryPolicy = ExponentialBackoffRetryPolicy()
-        let validationService = DefaultDownloadValidationService()
-        let orchestrationService = DefaultDownloadOrchestrationService(
-            networkService: networkService,
-            storageService: storageService,
-            retryPolicy: retryPolicy,
-            validationService: validationService
-        )
-        
-        let healingService = DefaultBackgroundHealingService(
-            storageService: storageService,
-            validationService: validationService,
-            onBookRemoved: { [weak self] bookId in
-                Task { @MainActor in
-                    self?.downloadedBooks.removeAll { $0.id == bookId }
-                }
-            }
-        )
-        
-        self.repository = DefaultDownloadRepository(
-            orchestrationService: orchestrationService,
-            storageService: storageService,
-            validationService: validationService,
-            healingService: healingService,
-            downloadManager: self
-        )
+    // Dependency Injection method
+    func configure(repository: DownloadRepository) {
+        self.repository = repository
+        AppLogger.general.debug("[DownloadManager] Repository configured")
     }
     
     // MARK: - Public API
     
     func downloadBook(_ book: Book, api: AudiobookshelfClient) async {
-        guard let repository = repository else { return }
+        guard let repository = repository else {
+            AppLogger.general.error("[DownloadManager] Repository not configured")
+            return
+        }
         do { try await repository.downloadBook(book, api: api) } catch {
             AppLogger.general.error("Download failed: \(error)")
         }
@@ -187,6 +158,7 @@ class DownloadManager: ObservableObject {
     
     func bookDirectory(for bookId: String) -> URL {
         guard let repository = repository else {
+            // Fallback (safe default)
             let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             return documentsURL.appendingPathComponent("Downloads").appendingPathComponent(bookId)
         }

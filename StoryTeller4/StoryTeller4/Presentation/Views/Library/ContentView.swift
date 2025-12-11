@@ -375,10 +375,8 @@ struct ContentView: View {
                 return
             }
             
-            // Wait for download manager to initialize repository
-            while downloadManager.repository == nil {
-                try? await Task.sleep(nanoseconds: 50_000_000)
-            }
+            // CLEAN CODE: Removed the 'while downloadManager.repository == nil' loop.
+            // The Container now guarantees initialization.
             
             self.bookCount = await downloadManager.preloadDownloadedBooksCount()
             
@@ -386,7 +384,7 @@ struct ContentView: View {
             
             do {
                 let token = try KeychainService.shared.getToken(for: username)
-                
+            
                 dependencies.configureAPI(baseURL: baseURL, token: token)
                 
                 let client = dependencies.apiClient!

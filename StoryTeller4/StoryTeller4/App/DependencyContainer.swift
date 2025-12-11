@@ -39,7 +39,52 @@ final class DependencyContainer: ObservableObject {
     // Shared state managers and services
     // These are kept as singletons/shared instances to maintain state across the app
     lazy var appState: AppStateManager = AppStateManager.shared
-    lazy var downloadManager: DownloadManager = DownloadManager()
+    
+    
+    lazy var downloadManager: DownloadManager = {
+            let manager = DownloadManager()
+            
+            // 1. Create dependencies
+            let networkService = DefaultDownloadNetworkService()
+            let storageService = DefaultDownloadStorageService()
+            let retryPolicy = ExponentialBackoffRetryPolicy()
+            let validationService = DefaultDownloadValidationService()
+            
+            // 2. Create Orchestration
+            let orchestrationService = DefaultDownloadOrchestrationService(
+                networkService: networkService,
+                storageService: storageService,
+                retryPolicy: retryPolicy,
+                validationService: validationService
+            )
+            
+            // 3. Create Healing Service (Circular callback handled via closure capture)
+            // Note: captured 'manager' is a reference type, so it works.
+            let healingService = DefaultBackgroundHealingService(
+                storageService: storageService,
+                validationService: validationService,
+                onBookRemoved: { [weak manager] bookId in
+                    Task { @MainActor in
+                        manager?.downloadedBooks.removeAll { $0.id == bookId }
+                    }
+                }
+            )
+            
+            // 4. Create Repository
+            let repository = DefaultDownloadRepository(
+                orchestrationService: orchestrationService,
+                storageService: storageService,
+                validationService: validationService,
+                healingService: healingService,
+                downloadManager: manager
+            )
+            
+            // 5. Inject Repository into Manager
+            manager.configure(repository: repository)
+            
+            return manager
+        }()
+    
     lazy var player: AudioPlayer = AudioPlayer()
     lazy var playerStateManager: PlayerStateManager = PlayerStateManager()
 
