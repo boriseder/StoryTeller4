@@ -1,7 +1,6 @@
 import Foundation
 
 protocol CalculateStorageUseCaseProtocol: Sendable {
-    // StorageInfo is a simple struct (Sendable implied)
     func execute() async -> StorageInfo
 }
 
@@ -12,9 +11,7 @@ struct StorageInfo: Sendable {
 }
 
 final class CalculateStorageUseCase: CalculateStorageUseCaseProtocol, Sendable {
-    // StorageMonitor is Sendable
     private let storageMonitor: StorageMonitor
-    // DownloadManager is @MainActor
     private let downloadManager: DownloadManager
     
     init(
@@ -26,7 +23,6 @@ final class CalculateStorageUseCase: CalculateStorageUseCaseProtocol, Sendable {
     }
     
     func execute() async -> StorageInfo {
-        // Heavy IO calculation on background thread (StorageMonitor handles file system safely)
         let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let cacheSize = storageMonitor.calculateDirectorySize(at: cacheURL)
         let cacheSizeFormatted = storageMonitor.formatBytes(cacheSize)
@@ -36,8 +32,10 @@ final class CalculateStorageUseCase: CalculateStorageUseCaseProtocol, Sendable {
         let downloadsSize = storageMonitor.calculateDirectorySize(at: downloadsURL)
         let downloadsSizeFormatted = storageMonitor.formatBytes(downloadsSize)
         
-        // Must await access to MainActor property
-        let downloadsCount = await downloadManager.downloadedBooks.count
+        // FIX: Access MainActor isolated property safely
+        let downloadsCount = await MainActor.run {
+            downloadManager.downloadedBooks.count
+        }
         
         return StorageInfo(
             totalCacheSize: cacheSizeFormatted,

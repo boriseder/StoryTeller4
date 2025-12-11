@@ -1,4 +1,5 @@
-import Foundation
+// Add @preconcurrency to silence Sendable warnings for system frameworks
+@preconcurrency import Foundation
 import AVFoundation
 import Combine
 import UIKit
@@ -36,14 +37,12 @@ class AudioPlayer: NSObject, ObservableObject {
     }
     
     // MARK: - State
-    private var currentObservedItem: AVPlayerItem?
-    private var hasAddedKVOObservers = false
+    // Replaced manual KVO with token storage
+    private var keyValueObservations: [NSKeyValueObservation] = []
     private var timeObserver: Any?
-    private var observers: [NSObjectProtocol] = []
     
-    // FIX: Swift 6 requires global mutable state to be explicitly unsafe if not protected by an actor.
-    // Since this is just a pointer address for KVO context, it is safe.
-    private nonisolated(unsafe) static var observerContext = 0
+    // Wrapper for notifications handles cleanup safely
+    private let notificationWrapper = NotificationObserverWrapper()
     
     // MARK: - Computed Properties
     var currentChapter: Chapter? {
@@ -385,12 +384,14 @@ class AudioPlayer: NSObject, ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleInterruption(notification: notification)
+            Task { @MainActor [weak self] in
+                self?.handleInterruption(notification: notification)
+            }
         }
-        observers.append(observer)
+        notificationWrapper.add(observer)
     }
     
-    @objc private func handleInterruption(notification: Notification) {
+    private func handleInterruption(notification: Notification) {
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
@@ -402,8 +403,9 @@ class AudioPlayer: NSObject, ObservableObject {
             guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
             if options.contains(.shouldResume) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.play()
+                Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    self.play()
                 }
             }
         @unknown default:
@@ -427,82 +429,84 @@ class AudioPlayer: NSObject, ObservableObject {
     
     private func addTimeObserver() {
         let interval = CMTime(seconds: 1, preferredTimescale: 1)
+        
         timeObserver = avPlayerService.addTimeObserver(interval: interval, queue: .main) { [weak self] _ in
-            guard let self = self else { return }
-            self.currentTime = self.avPlayerService.currentTime
-            
-            if Int(self.currentTime) % 5 == 0 {
-                self.updateNowPlaying()
-            }
-            if self.duration - self.currentTime <= 30 {
-                self.startPreloadingNextChapter()
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.currentTime = self.avPlayerService.currentTime
+                
+                if Int(self.currentTime) % 5 == 0 {
+                    self.updateNowPlaying()
+                }
+                if self.duration - self.currentTime <= 30 {
+                    self.startPreloadingNextChapter()
+                }
             }
         }
     }
     
     private func setupPlayerItemObservers(_ playerItem: AVPlayerItem) {
-        if let previousItem = currentObservedItem {
-            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: previousItem)
-            if hasAddedKVOObservers {
-                previousItem.removeObserver(self, forKeyPath: "status", context: &AudioPlayer.observerContext)
-                previousItem.removeObserver(self, forKeyPath: "loadedTimeRanges", context: &AudioPlayer.observerContext)
+        // Clear old observations
+        keyValueObservations.removeAll()
+        
+        // 1. Status Observer
+        let statusObs = playerItem.observe(\.status) { [weak self] item, _ in
+            Task { @MainActor in
+                self?.handleStatusChange(item)
             }
         }
+        keyValueObservations.append(statusObs)
         
-        playerItem.addObserver(self, forKeyPath: "status", options: [.new], context: &AudioPlayer.observerContext)
-        playerItem.addObserver(self, forKeyPath: "loadedTimeRanges", options: [.new], context: &AudioPlayer.observerContext)
-        hasAddedKVOObservers = true
+        // 2. LoadedTimeRanges Observer
+        let timeObs = playerItem.observe(\.loadedTimeRanges) { _, _ in
+            // No-op or update buffer UI if needed
+        }
+        keyValueObservations.append(timeObs)
         
-        NotificationCenter.default.addObserver(self, selector: #selector(playerItemDidFinishPlaying), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
-        currentObservedItem = playerItem
+        // 3. Play to end observer
+        let finishObs = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.playerItemDidFinishPlaying()
+            }
+        }
+        notificationWrapper.add(finishObs)
     }
     
-    @objc private func playerItemDidFinishPlaying(_ notification: Notification) {
+    private func playerItemDidFinishPlaying() {
         guard let book = book, currentChapterIndex + 1 < book.chapters.count else {
-            DispatchQueue.main.async { [weak self] in
-                self?.isPlaying = false
-                self?.updateNowPlaying()
-            }
+            isPlaying = false
+            updateNowPlaying()
             return
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.nextChapter()
-        }
+        nextChapter()
     }
     
-    nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        guard context == &AudioPlayer.observerContext else {
-            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-            return
-        }
-        Task { @MainActor in
-            self.handleObservationChange(keyPath: keyPath, object: object)
-        }
-    }
-    
-    private func handleObservationChange(keyPath: String?, object: Any?) {
-        guard let keyPath = keyPath, let playerItem = object as? AVPlayerItem else { return }
-        switch keyPath {
-        case "status":
-            if playerItem.status == .failed {
-                self.errorMessage = playerItem.error?.localizedDescription ?? "Unknown error"
-            } else if playerItem.status == .readyToPlay {
-                self.errorMessage = nil
-            }
-        default: break
+    private func handleStatusChange(_ item: AVPlayerItem) {
+        if item.status == .failed {
+            self.errorMessage = item.error?.localizedDescription ?? "Unknown error"
+        } else if item.status == .readyToPlay {
+            self.errorMessage = nil
         }
     }
     
     private func setupPersistence() {
         let autoSaveObserver = NotificationCenter.default.addObserver(forName: .playbackAutoSave, object: nil, queue: .main) { [weak self] _ in
-            self?.saveCurrentPlaybackState()
+            Task { @MainActor [weak self] in
+                self?.saveCurrentPlaybackState()
+            }
         }
-        observers.append(autoSaveObserver)
+        notificationWrapper.add(autoSaveObserver)
         
         let backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.saveCurrentPlaybackState()
+            Task { @MainActor [weak self] in
+                self?.saveCurrentPlaybackState()
+            }
         }
-        observers.append(backgroundObserver)
+        notificationWrapper.add(backgroundObserver)
     }
     
     private func saveCurrentPlaybackState() {
@@ -533,25 +537,15 @@ class AudioPlayer: NSObject, ObservableObject {
             avPlayerService.removeTimeObserver(observer)
             timeObserver = nil
         }
-        if let observedItem = currentObservedItem {
-            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: observedItem)
-            if hasAddedKVOObservers {
-                observedItem.removeObserver(self, forKeyPath: "status", context: &AudioPlayer.observerContext)
-                observedItem.removeObserver(self, forKeyPath: "loadedTimeRanges", context: &AudioPlayer.observerContext)
-                hasAddedKVOObservers = false
-            }
-        }
-        currentObservedItem = nil
+        
+        // KVO tokens invalidate automatically on replacement/removal
+        keyValueObservations.removeAll()
+        
         avPlayerService.cleanup()
     }
     
     deinit {
-        NotificationCenter.default.removeObserver(self)
-        if let observedItem = currentObservedItem, hasAddedKVOObservers {
-            observedItem.removeObserver(self, forKeyPath: "status", context: &AudioPlayer.observerContext)
-            observedItem.removeObserver(self, forKeyPath: "loadedTimeRanges", context: &AudioPlayer.observerContext)
-        }
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        // NotificationObserverWrapper deinit automatically removes observers
     }
 }
 

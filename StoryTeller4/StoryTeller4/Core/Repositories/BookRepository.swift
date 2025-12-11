@@ -14,11 +14,41 @@ protocol BookRepositoryProtocol: Sendable {
 
 enum RepositoryError: LocalizedError, Sendable {
     case networkError(Error), decodingError(Error), notFound, invalidData, unauthorized, serverError(Int)
+    
+    var errorDescription: String? {
+        switch self {
+        case .networkError(let error): return "Network error: \(error.localizedDescription)"
+        case .decodingError(let error): return "Decoding error: \(error.localizedDescription)"
+        case .notFound: return "Resource not found"
+        case .invalidData: return "Invalid data received"
+        case .unauthorized: return "Unauthorized access"
+        case .serverError(let code): return "Server error \(code)"
+        }
+    }
 }
 
 // MARK: - Helper Types (Top Level)
 struct LocalCacheMetadata: Codable, Sendable {
     let timestamp: Date
+    
+    init(timestamp: Date) {
+        self.timestamp = timestamp
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case timestamp
+    }
+    
+    // Explicitly nonisolated to satisfy Swift 6 strict concurrency
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+    }
+    
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(timestamp, forKey: .timestamp)
+    }
 }
 
 // MARK: - Implementation
@@ -238,22 +268,22 @@ actor BookCache: BookCacheProtocol {
 
     // MARK: - Private Disk I/O Methods
     
-    // Static methods to avoid actor isolation issues
-    private static func saveToDisk<T: Encodable & Sendable>(_ data: T, key: String, at cacheURL: URL) async {
+    // Static methods marked nonisolated to allow calling from any context
+    nonisolated private static func saveToDisk<T: Encodable & Sendable>(_ data: T, key: String, at cacheURL: URL) async {
         let fileURL = cacheURL.appendingPathComponent("\(key).json")
         guard let encoded = try? JSONEncoder().encode(data) else { return }
         
         try? encoded.write(to: fileURL)
         
         // Save metadata
-        let metadata = LocalCacheMetadata(timestamp: Date())
+        let metadata = await LocalCacheMetadata(timestamp: Date())
         let metadataURL = cacheURL.appendingPathComponent("\(key)_metadata.json")
         if let metadataData = try? JSONEncoder().encode(metadata) {
             try? metadataData.write(to: metadataURL)
         }
     }
     
-    private static func loadFromDiskSync<T: Decodable & Sendable>(key: String, at cacheURL: URL, maxAge: TimeInterval) -> T? {
+    nonisolated private static func loadFromDiskSync<T: Decodable & Sendable>(key: String, at cacheURL: URL, maxAge: TimeInterval) -> T? {
         let fileURL = cacheURL.appendingPathComponent("\(key).json")
         let fm = FileManager.default
         

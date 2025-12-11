@@ -12,7 +12,10 @@ protocol AVPlayerService: AnyObject {
     func pause()
     func seek(to time: Double)
     func cleanup()
-    func addTimeObserver(interval: CMTime, queue: DispatchQueue?, handler: @escaping (CMTime) -> Void) -> Any
+    
+    // Fix: Handler must be Sendable
+    func addTimeObserver(interval: CMTime, queue: DispatchQueue?, handler: @escaping @Sendable (CMTime) -> Void) -> Any
+    
     func removeTimeObserver(_ observer: Any)
 }
 
@@ -74,7 +77,7 @@ class DefaultAVPlayerService: AVPlayerService {
         player = nil
     }
     
-    func addTimeObserver(interval: CMTime, queue: DispatchQueue?, handler: @escaping (CMTime) -> Void) -> Any {
+    func addTimeObserver(interval: CMTime, queue: DispatchQueue?, handler: @escaping @Sendable (CMTime) -> Void) -> Any {
         guard let player = player else {
             return NSObject()
         }

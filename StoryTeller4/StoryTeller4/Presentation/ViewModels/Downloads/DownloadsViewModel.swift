@@ -15,7 +15,9 @@ class DownloadsViewModel: ObservableObject {
     private let downloadUseCase: DownloadBookUseCase
     private let playBookUseCase: PlayBookUseCase
     private let storageMonitor: StorageMonitor
-    private var storageUpdateTimer: Timer?
+    
+    // ✅ FIX: Use a wrapper to handle timer invalidation safely on deinit
+    private var storageUpdateTimer: StorageTimerWrapper?
     
     let downloadManager: DownloadManager
     let player: AudioPlayer
@@ -98,7 +100,8 @@ class DownloadsViewModel: ObservableObject {
     }
     
     private func setupStorageMonitoring() {
-        storageUpdateTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { [weak self] _ in
+        // ✅ FIX: Initialize the safe wrapper
+        storageUpdateTimer = StorageTimerWrapper(interval: 300.0) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.updateStorageInfo()
             }
@@ -186,10 +189,9 @@ class DownloadsViewModel: ObservableObject {
         progressState.cancelDeleteAll()
     }
     
-    deinit {
-        storageUpdateTimer?.invalidate()
-        storageUpdateTimer = nil
-    }
+    // ✅ FIX: No deinit needed here.
+    // The storageUpdateTimer property will be released when DownloadsViewModel dies,
+    // triggering StorageTimerWrapper.deinit which safely cancels the dispatch source.
 }
 
 extension DownloadsViewModel {
@@ -203,5 +205,25 @@ extension DownloadsViewModel {
             storageMonitor: StorageMonitor(),
             onBookSelected: {}
         )
+    }
+}
+
+// MARK: - Private Helper
+// ✅ FIX: Use DispatchSourceTimer (Sendable) instead of Timer (non-Sendable)
+private final class StorageTimerWrapper: Sendable {
+    private let timer: DispatchSourceTimer
+    
+    init(interval: TimeInterval, block: @escaping @Sendable () -> Void) {
+        // Use global utility queue for the timer event; the block handles hopping back to MainActor
+        let t = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        t.schedule(deadline: .now() + interval, repeating: interval)
+        t.setEventHandler(handler: block)
+        t.resume()
+        self.timer = t
+    }
+    
+    deinit {
+        // Safe to call from non-isolated deinit because DispatchSourceTimer is thread-safe
+        timer.cancel()
     }
 }

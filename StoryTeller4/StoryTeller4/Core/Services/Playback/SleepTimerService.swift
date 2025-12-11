@@ -1,3 +1,5 @@
+// Add @preconcurrency to silence Sendable warnings for system frameworks if needed
+@preconcurrency import Foundation
 import SwiftUI
 import UserNotifications
 import Combine
@@ -49,7 +51,9 @@ class SleepTimerService: ObservableObject {
     private let timerOptions = [5, 10, 15, 30, 45, 60, 90, 120]
     
     private let timerService: TimerManaging
-    private var observers: [NSObjectProtocol] = []
+    
+    // ✅ FIX: Use wrapper to handle observer cleanup safely
+    private let observerWrapper = ObserverWrapper()
     
     init(
         player: AudioPlayer,
@@ -212,7 +216,8 @@ class SleepTimerService: ObservableObject {
                 self.saveTimerState(endDate: endDate, mode: mode)
             }
         }
-        observers.append(backgroundObserver)
+        // ✅ FIX: Use wrapper to store observer
+        observerWrapper.add(backgroundObserver)
         
         requestNotificationPermission()
     }
@@ -292,6 +297,20 @@ class SleepTimerService: ObservableObject {
             AppLogger.general.debug("[SleepTimer] Deinitialized")
         }
         
+        // ✅ FIX: No manual observer removal here.
+        // observerWrapper will be deinitialized automatically, cleaning up observers.
+    }
+}
+
+// MARK: - Observer Wrapper
+private final class ObserverWrapper {
+    private var observers: [NSObjectProtocol] = []
+    
+    func add(_ observer: NSObjectProtocol) {
+        observers.append(observer)
+    }
+    
+    deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }

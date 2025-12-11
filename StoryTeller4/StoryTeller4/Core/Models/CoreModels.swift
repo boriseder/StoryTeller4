@@ -2,15 +2,15 @@ import Foundation
 
 // MARK: - Timestamp Utilities
 enum TimestampConverter {
-    static func dateFromServer(_ timestamp: TimeInterval) -> Date {
+    nonisolated static func dateFromServer(_ timestamp: TimeInterval) -> Date {
         Date(timeIntervalSince1970: timestamp / 1000)
     }
     
-    static func serverTimestamp(from date: Date) -> TimeInterval {
+    nonisolated static func serverTimestamp(from date: Date) -> TimeInterval {
         date.timeIntervalSince1970 * 1000
     }
     
-    static var currentServerTimestamp: TimeInterval {
+    nonisolated static var currentServerTimestamp: TimeInterval {
         serverTimestamp(from: Date())
     }
 }

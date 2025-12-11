@@ -148,7 +148,6 @@ final class DependencyContainer: ObservableObject {
     
     // MARK: - Enriched Bookmarks API
     
-    /// Get all enriched bookmarks (flat list)
     func getAllEnrichedBookmarks(sortedBy sort: BookmarkSortOption = .dateNewest) -> [EnrichedBookmark] {
         var enriched: [EnrichedBookmark] = []
         
@@ -160,7 +159,6 @@ final class DependencyContainer: ObservableObject {
             }
         }
         
-        // Sort
         switch sort {
         case .dateNewest:
             return enriched.sorted { $0.bookmark.createdAt > $1.bookmark.createdAt }
@@ -176,7 +174,6 @@ final class DependencyContainer: ObservableObject {
         }
     }
     
-    /// Get enriched bookmarks for a specific book
     func getEnrichedBookmarks(for libraryItemId: String) -> [EnrichedBookmark] {
         let bookmarks = bookmarkRepository.getBookmarks(for: libraryItemId)
         let book = bookLookupCache[libraryItemId]
@@ -186,7 +183,6 @@ final class DependencyContainer: ObservableObject {
         }
     }
     
-    /// Get enriched bookmarks grouped by book
     func getGroupedEnrichedBookmarks() -> [(book: Book?, bookmarks: [EnrichedBookmark])] {
         var grouped: [String: (Book?, [EnrichedBookmark])] = [:]
         
@@ -203,24 +199,19 @@ final class DependencyContainer: ObservableObject {
             }
     }
     
-    /// Preload a specific book into cache (useful before showing bookmarks)
     func preloadBookForBookmarks(_ bookId: String) async {
-        // Already cached?
         guard bookLookupCache[bookId] == nil else { return }
         
-        // Try to find in loaded libraries first
         if let book = libraryViewModel.books.first(where: { $0.id == bookId }) {
             bookLookupCache[bookId] = book
             return
         }
         
-        // Try downloaded books
         if let book = downloadManager.downloadedBooks.first(where: { $0.id == bookId }) {
             bookLookupCache[bookId] = book
             return
         }
         
-        // Fallback: Fetch from API
         do {
             let book = try await bookRepository.fetchBookDetails(bookId: bookId)
             bookLookupCache[bookId] = book
@@ -235,7 +226,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _bookRepository { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] BookRepository accessed before API configuration")
             return BookRepository.placeholder
         }
         
@@ -248,7 +238,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _libraryRepository { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] LibraryRepository accessed before API configuration")
             return LibraryRepository.placeholder
         }
         
@@ -261,7 +250,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _downloadRepository { return existing }
         
         guard let repo = downloadManager.repository else {
-            AppLogger.general.error("[Container] DownloadRepository not initialized - DownloadManager.repository is nil")
             fatalError("DownloadRepository not available. Ensure DownloadManager is properly initialized before accessing downloadRepository.")
         }
         
@@ -274,7 +262,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _homeViewModel { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] HomeViewModel accessed before API configuration")
             return HomeViewModel.placeholder
         }
         
@@ -300,7 +287,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _libraryViewModel { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] LibraryViewModel accessed before API configuration")
             return LibraryViewModel.placeholder
         }
         
@@ -325,7 +311,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _seriesViewModel { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] SeriesViewModel accessed before API configuration")
             return SeriesViewModel.placeholder
         }
         
@@ -348,7 +333,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _authorsViewModel { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] AuthorsViewModel accessed before API configuration")
             return AuthorsViewModel.placeholder
         }
         
@@ -366,7 +350,6 @@ final class DependencyContainer: ObservableObject {
         if let existing = _downloadsViewModel { return existing }
         
         guard let api = _apiClient else {
-            AppLogger.general.error("[Container] DownloadsViewModel accessed before API configuration")
             return DownloadsViewModel.placeholder
         }
         
@@ -469,20 +452,20 @@ final class DependencyContainer: ObservableObject {
         _seriesViewModel = nil
         _authorsViewModel = nil
         _downloadsViewModel = nil
-        // SettingsViewModel is not reset
     }
 
     @MainActor
     func reset() {
         AppLogger.general.info("[Container] Factory reset initiated")
 
-        // Launch async operations in background tasks
+        // Using Task prevents blocking and handles concurrency correctly
         Task {
             await bookRepository.clearCache()
         }
         
+        // FIX: Removed await as clearCache is synchronous in current LibraryRepository
         Task {
-            await libraryRepository.clearCache()
+            libraryRepository.clearCache()
         }
         
         bookmarkRepository.clearCache()
@@ -498,5 +481,4 @@ final class DependencyContainer: ObservableObject {
 
         AppLogger.general.info("[Container] All repositories and ViewModels reset")
     }
-
 }
