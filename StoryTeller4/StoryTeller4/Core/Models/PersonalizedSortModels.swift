@@ -14,7 +14,7 @@ struct PersonalizedSection: Codable, Identifiable, Sendable {
     
     enum CodingKeys: String, CodingKey { case id, label, labelStringKey, type, entities, total }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         label = try c.decode(String.self, forKey: .label)
@@ -24,7 +24,7 @@ struct PersonalizedSection: Codable, Identifiable, Sendable {
         total = try c.decode(Int.self, forKey: .total)
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encode(label, forKey: .label)
         try c.encodeIfPresent(labelStringKey, forKey: .labelStringKey); try c.encode(type, forKey: .type)
@@ -61,7 +61,7 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
     
     // Conversion properties omitted for brevity but should be here if needed
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         media = try c.decodeIfPresent(Media.self, forKey: .media)
@@ -77,7 +77,7 @@ struct PersonalizedEntity: Codable, Identifiable, Sendable {
         if let ts = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) { updatedAt = TimestampConverter.dateFromServer(ts) } else { updatedAt = nil }
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encodeIfPresent(media, forKey: .media)
         try c.encodeIfPresent(libraryId, forKey: .libraryId); try c.encodeIfPresent(collapsedSeries, forKey: .collapsedSeries)

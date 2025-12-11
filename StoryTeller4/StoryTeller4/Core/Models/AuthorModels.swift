@@ -41,7 +41,7 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         case addedAt, updatedAt, numBooks, lastFirst, libraryItems, series
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -59,7 +59,7 @@ struct Author: Codable, Identifiable, Equatable, Hashable, Sendable {
         else { updatedAt = Date() }
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)

@@ -164,13 +164,3 @@ struct UserData: Codable, Sendable {
         type.lowercased() == "admin"
     }
 }
-
-
-// MARK: - All other model files remain the same
-// Your CoreModels.swift, LibrarySeriesModels.swift, PlaybackModels.swift,
-// PersonalizedSortModels.swift, and AuthorModels.swift are already Swift 6 ready!
-// They all have proper Sendable conformance.
-
-// The key insight: The problem isn't in your model definitions - they're fine.
-// The issue is likely in HOW you're using them (e.g., storing them in @MainActor classes)
-// or in helper types like TimeFormatter that need to be nonisolated.

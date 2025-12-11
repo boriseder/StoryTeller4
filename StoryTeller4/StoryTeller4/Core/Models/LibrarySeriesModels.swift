@@ -32,7 +32,7 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         case id, name, nameIgnorePrefix, nameIgnorePrefixSort, numBooks, books, addedAt
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -48,7 +48,7 @@ struct Series: Codable, Identifiable, Equatable, Hashable, Sendable {
         }
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
@@ -119,7 +119,7 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
         self.collapsedSeries = collapsedSeries
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         title = try container.decode(String.self, forKey: .title)
@@ -129,7 +129,7 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
         collapsedSeries = try container.decodeIfPresent(Series.self, forKey: .collapsedSeries)
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)

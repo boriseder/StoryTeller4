@@ -12,7 +12,6 @@ struct PlaybackSessionRequest: Sendable {
         let clientName: String?
     }
     
-    // NO @MainActor here!
     init(
         deviceInfo: DeviceInfo,
         supportedMimeTypes: [String] = ["audio/mpeg", "audio/mp4", "audio/aac"],
@@ -30,14 +29,14 @@ extension PlaybackSessionRequest: Codable {
         case deviceInfo, supportedMimeTypes, mediaPlayer
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         deviceInfo = try container.decode(DeviceInfo.self, forKey: .deviceInfo)
         supportedMimeTypes = try container.decode([String].self, forKey: .supportedMimeTypes)
         mediaPlayer = try container.decode(String.self, forKey: .mediaPlayer)
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(deviceInfo, forKey: .deviceInfo)
         try container.encode(supportedMimeTypes, forKey: .supportedMimeTypes)
@@ -50,14 +49,14 @@ extension PlaybackSessionRequest.DeviceInfo: Codable {
         case clientVersion, deviceId, clientName
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         clientVersion = try container.decode(String.self, forKey: .clientVersion)
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         clientName = try container.decodeIfPresent(String.self, forKey: .clientName)
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(clientVersion, forKey: .clientVersion)
         try container.encodeIfPresent(deviceId, forKey: .deviceId)
@@ -89,7 +88,7 @@ extension PlaybackSessionResponse: Codable {
         case id, audioTracks, duration, mediaType, libraryItemId, episodeId
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         audioTracks = try container.decode([AudioTrack].self, forKey: .audioTracks)
@@ -99,7 +98,7 @@ extension PlaybackSessionResponse: Codable {
         episodeId = try container.decodeIfPresent(String.self, forKey: .episodeId)
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(audioTracks, forKey: .audioTracks)
@@ -110,7 +109,7 @@ extension PlaybackSessionResponse: Codable {
     }
 }
 
-// MARK: - MediaProgress Model (Keep from original - already good)
+// MARK: - MediaProgress Model
 struct MediaProgress: Codable, Identifiable, Sendable {
     let id: String
     let libraryItemId: String
@@ -163,7 +162,7 @@ struct MediaProgress: Codable, Identifiable, Sendable {
         self.finishedAt = finishedAt
     }
     
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         libraryItemId = try container.decode(String.self, forKey: .libraryItemId)
@@ -187,7 +186,7 @@ struct MediaProgress: Codable, Identifiable, Sendable {
         }
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(libraryItemId, forKey: .libraryItemId)
@@ -220,7 +219,7 @@ struct MediaProgress: Codable, Identifiable, Sendable {
     }
 }
 
-// MARK: - PlaybackState Model (Keep from original)
+// MARK: - PlaybackState Model
 struct PlaybackState: Codable, Sendable {
     let libraryItemId: String
     var currentTime: Double
