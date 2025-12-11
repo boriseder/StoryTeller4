@@ -1,185 +1,123 @@
-//
-//  BookmarksView.swift
-//  StoryTeller3
-//
-//  Created by Boris Eder on 24.11.25.
-//
-
 import SwiftUI
 
-// MARK: - All Bookmarks View
 struct BookmarksView: View {
-    @StateObject private var viewModel: BookmarkViewModel
-    @EnvironmentObject var dependencies: DependencyContainer
+    @State private var viewModel = BookmarkViewModel()
     @Environment(\.dismiss) private var dismiss
-
-    init() {
-        _viewModel = StateObject(wrappedValue: BookmarkViewModel())
-    }
+    @EnvironmentObject var theme: ThemeManager
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: DSLayout.tightGap) {
-                    if viewModel.groupByBook {
-                        groupedView
+            ZStack {
+                if theme.backgroundStyle == .dynamic {
+                    Color.accent.ignoresSafeArea()
+                    DynamicBackground()
+                }
+                
+                VStack(spacing: 0) {
+                    searchBar
+                    
+                    if viewModel.allBookmarks.isEmpty {
+                        emptyState
                     } else {
-                        flatView
+                        bookmarksList
                     }
                 }
-                .padding(.horizontal, DSLayout.screenPadding)
-                .padding(.bottom, DSLayout.screenPadding)
             }
             .navigationTitle("Bookmarks")
-            .searchable(text: $viewModel.searchText, prompt: "Search bookmarks...")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.down")
-                    }
-                }
-
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        sortMenu
-                        Divider()
-                        groupingMenu
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
+                    Button("Done") { dismiss() }
+                }
+                
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: viewModel.toggleGrouping) {
+                        Image(systemName: viewModel.groupByBook ? "list.bullet" : "square.grid.2x2")
                     }
                 }
             }
-            .refreshable {
-                await viewModel.refresh()
-            }
-            .alert("Edit Bookmark", isPresented: .constant(viewModel.editingBookmark != nil)) {
-                TextField("Bookmark name", text: $viewModel.editedBookmarkTitle)
-                    .autocorrectionDisabled()
-                
-                Button("Cancel", role: .cancel) {
-                    viewModel.cancelEditing()
+            .sheet(item: $viewModel.editingBookmark) { enriched in
+                NavigationStack {
+                    Form {
+                        TextField("Title", text: $viewModel.editedBookmarkTitle)
+                            .autocorrectionDisabled()
+                    }
+                    .navigationTitle("Edit Bookmark")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { viewModel.cancelEditing() }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Save") { viewModel.saveEditedBookmark() }
+                        }
+                    }
                 }
-                
-                Button("Save") {
-                    viewModel.saveEditedBookmark()
-                }
-                .disabled(viewModel.editedBookmarkTitle.trimmingCharacters(in: .whitespaces).isEmpty)
-            } message: {
-                Text("Enter a new name for this bookmark")
+                .presentationDetents([.height(200)])
             }
         }
     }
     
-    // MARK: - Flat View
-    
-    private var flatView: some View {
-        ForEach(viewModel.allBookmarks) { enriched in
-            BookmarkRow(
-                enriched: enriched,
-                showBookInfo: true,
-                onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
-                onEdit: { viewModel.startEditingBookmark(enriched) },
-                onDelete: { viewModel.deleteBookmark(enriched) }
-            )
-            .environmentObject(viewModel)
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("Search bookmarks...", text: $viewModel.searchText)
+                .textFieldStyle(.plain)
+            
+            if !viewModel.searchText.isEmpty {
+                Button(action: { viewModel.searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
         }
+        .padding(8)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding()
     }
     
-    // MARK: - Grouped View
-    
-    private var groupedView: some View {
-        ForEach(Array(viewModel.groupedBookmarks.enumerated()), id: \.offset) { index, group in
-            VStack(alignment: .leading, spacing: DSLayout.tightGap) {
-                // Section Header
-                if let book = group.book {
-                    BookSectionHeader(book: book, bookmarkCount: group.bookmarks.count)
-                        .padding(.top, index == 0 ? 0 : DSLayout.contentGap)
-                } else {
-                    HStack(spacing: DSLayout.elementGap) {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Loading book info...")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(group.bookmarks.count) bookmark\(group.bookmarks.count == 1 ? "" : "s")")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
+    private var bookmarksList: some View {
+        List {
+            if viewModel.groupByBook {
+                ForEach(viewModel.groupedBookmarks, id: \.book?.id) { group in
+                    Section(header: Text(group.book?.title ?? "Unknown Book")) {
+                        ForEach(group.bookmarks) { enriched in
+                            BookmarkRow(
+                                enriched: enriched,
+                                // FIX: Changed 'onJump' to 'onTap' to match BookmarkRow definition
+                                onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
+                                onEdit: { viewModel.startEditingBookmark(enriched) },
+                                onDelete: { viewModel.deleteBookmark(enriched) }
+                            )
+                        }
                     }
-                    .padding(.vertical, DSLayout.tightPadding)
-                    .padding(.top, index == 0 ? 0 : DSLayout.contentGap)
                 }
-                
-                // Bookmarks in group
-                ForEach(group.bookmarks) { enriched in
+            } else {
+                ForEach(viewModel.filteredBookmarks) { enriched in
                     BookmarkRow(
                         enriched: enriched,
-                        showBookInfo: false,
+                        // FIX: Changed 'onJump' to 'onTap'
                         onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
                         onEdit: { viewModel.startEditingBookmark(enriched) },
                         onDelete: { viewModel.deleteBookmark(enriched) }
                     )
-                    .environmentObject(viewModel)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
     }
     
-    // MARK: - Sort Menu
-    
-    private var sortMenu: some View {
-        Section("Sort By") {
-            ForEach(BookmarkSortOption.allCases) { option in
-                Button {
-                    viewModel.sortOption = option
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if viewModel.sortOption == option {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    private var groupingMenu: some View {
-        Section("View") {
-            Button {
-                viewModel.toggleGrouping()
-            } label: {
-                HStack {
-                    Text(viewModel.groupByBook ? "Show All" : "Group by Book")
-                    if viewModel.groupByBook {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-// MARK: - Book Section Header
-struct BookSectionHeader: View {
-    let book: Book
-    let bookmarkCount: Int
-    
-    var body: some View {
-        HStack(spacing: DSLayout.elementGap) {
-            Text(book.title)
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "bookmark.slash")
+                .font(.system(size: 50))
+                .foregroundColor(.secondary)
+            Text("No bookmarks found")
                 .font(.headline)
-                .lineLimit(1)
-            
-            Spacer()
-            
-            Text("\(bookmarkCount) bookmark\(bookmarkCount == 1 ? "" : "s")")
-                .font(.caption)
                 .foregroundColor(.secondary)
         }
-        .padding(.vertical, DSLayout.tightPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

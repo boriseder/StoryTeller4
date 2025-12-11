@@ -16,24 +16,31 @@ struct ChaptersListView: View {
     @State private var updateTimer: Timer?
     @State private var scrollTarget: Int?
     
-    @StateObject private var bookmarkViewModel: BookmarkViewModel
+    // FIX: Use @State for @Observable view model
+    @State private var bookmarkViewModel: BookmarkViewModel
     
     // Filter bookmarks for current book only
     private var currentBookBookmarks: [EnrichedBookmark] {
         guard let bookId = player.book?.id else { return [] }
-        return bookmarkViewModel.allBookmarks
-            .filter { $0.bookmark.libraryItemId == bookId }
-            .sorted { $0.bookmark.time < $1.bookmark.time }
+        
+        // FIX: Simplified closure syntax to resolve type-check timeout
+        let bookBookmarks = bookmarkViewModel.allBookmarks.filter { enriched in
+            enriched.bookmark.libraryItemId == bookId
+        }
+        
+        return bookBookmarks.sorted { first, second in
+            first.bookmark.time < second.bookmark.time
+        }
     }
     
     init(player: AudioPlayer) {
         self.player = player
-        // Initialize with shared dependencies
-        _bookmarkViewModel = StateObject(wrappedValue: BookmarkViewModel())
+        // FIX: Initialize @Observable model using State(initialValue:)
+        _bookmarkViewModel = State(initialValue: BookmarkViewModel())
     }
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 0) {
                 // Header
                 if let book = player.book {
@@ -88,9 +95,12 @@ struct ChaptersListView: View {
             .onDisappear {
                 stopPeriodicUpdates()
             }
-            // ✅ USE ViewModel's alert binding
-            .alert("Edit Bookmark", isPresented: .constant(bookmarkViewModel.editingBookmark != nil)) {
-                TextField("Bookmark name", text: $bookmarkViewModel.editedBookmarkTitle)
+            // Bindable access for the alert
+            .alert("Edit Bookmark", isPresented: Binding(
+                get: { bookmarkViewModel.editingBookmark != nil },
+                set: { if !$0 { bookmarkViewModel.cancelEditing() } }
+            )) {
+                TextField("Bookmark name", text: Bindable(bookmarkViewModel).editedBookmarkTitle)
                     .autocorrectionDisabled()
                 
                 Button("Cancel", role: .cancel) {
@@ -239,7 +249,10 @@ struct ChaptersListView: View {
                                 bookmarkViewModel.deleteBookmark(enriched)
                             }
                         )
-                        .environmentObject(bookmarkViewModel)
+                        // Note: Using environmentObject for rows is fine if they expect it,
+                        // but with @Observable, passing the viewModel or specific bindings is cleaner.
+                        // Assuming BookmarkRow hasn't been migrated to remove EnvironmentObject dependency yet.
+                        // .environmentObject(bookmarkViewModel) // REMOVED: Cannot inject @Observable into EnvironmentObject
                     }
                 }
                 .padding(.horizontal, DSLayout.screenPadding)
@@ -272,8 +285,8 @@ struct ChaptersListView: View {
     private func startPeriodicUpdates() {
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
-                            updateChapterViewModels()
-                        }
+                updateChapterViewModels()
+            }
         }
     }
     

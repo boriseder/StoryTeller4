@@ -1,75 +1,90 @@
-//
-//  BookmarkViewModel.swift
-//  StoryTeller3
-//
-//  Created by Boris Eder on 25.11.25.
-//
-
 import Foundation
 import SwiftUI
+import Observation
 import Combine
 
 @MainActor
-class BookmarkViewModel: ObservableObject {
-    // MARK: - Published State
-    @Published var searchText = ""
-    @Published var sortOption: BookmarkSortOption = .dateNewest
-    @Published var groupByBook = true
-    @Published private var refreshTrigger = false
+@Observable
+class BookmarkViewModel {
+    // MARK: - State
+    var searchText = ""
+    var sortOption: BookmarkSortOption = .dateNewest
+    var groupByBook = true
+    
+    // Local storage of enriched bookmarks to drive UI updates
+    var allBookmarks: [EnrichedBookmark] = []
+    
+    // Edit State
+    var editingBookmark: EnrichedBookmark?
+    var editedBookmarkTitle: String = ""
     
     // MARK: - Dependencies
     private let dependencies: DependencyContainer
     private let repository: BookmarkRepository
     private var player: AudioPlayer { dependencies.player }
-    private var cancellables = Set<AnyCancellable>()
     
-    var editingBookmark: EnrichedBookmark?
-    var editedBookmarkTitle: String
+    // Keep Combine for bridging legacy repository
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Computed Properties
-    var allBookmarks: [EnrichedBookmark] {
-        dependencies.getAllEnrichedBookmarks(sortedBy: sortOption)
-            .filter { searchFilter($0) }
+    
+    var filteredBookmarks: [EnrichedBookmark] {
+        allBookmarks.filter { searchFilter($0) }
     }
     
     var groupedBookmarks: [(book: Book?, bookmarks: [EnrichedBookmark])] {
-        dependencies.getGroupedEnrichedBookmarks()
-            .map { group in
-                let filtered = group.bookmarks.filter { searchFilter($0) }
-                return (group.book, filtered)
-            }
-            .filter { !$0.bookmarks.isEmpty }
+        // Group the already enriched and sorted bookmarks
+        let grouped = Dictionary(grouping: filteredBookmarks) { $0.bookmark.libraryItemId }
+        
+        return grouped.map { (itemId, bookmarks) in
+            let book = dependencies.getGroupedEnrichedBookmarks().first(where: { $0.book?.id == itemId })?.book
+            return (book, bookmarks)
+        }
+        .sorted {
+            guard let b1 = $0.book, let b2 = $1.book else { return false }
+            return b1.title < b2.title
+        }
     }
     
     // MARK: - Init
     init(dependencies: DependencyContainer = .shared) {
         self.dependencies = dependencies
         self.repository = dependencies.bookmarkRepository
-        self.editingBookmark = nil
-        self.editedBookmarkTitle = ""
         setupObservers()
+        refreshData()
     }
     
     // MARK: - Setup
     private func setupObservers() {
-        // React to bookmark enrichment updates
+        // Bridge Combine updates to @Observable properties
+        
         NotificationCenter.default.publisher(for: .init("BookmarkEnrichmentUpdated"))
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
+                Task { @MainActor in self?.refreshData() }
             }
             .store(in: &cancellables)
         
-        // React to bookmark repository changes
         repository.$bookmarks
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
+                Task { @MainActor in self?.refreshData() }
             }
             .store(in: &cancellables)
+    }
+    
+    // Update local state from dependencies
+    private func refreshData() {
+        allBookmarks = dependencies.getAllEnrichedBookmarks(sortedBy: sortOption)
     }
     
     // MARK: - Actions
     func refresh() async {
         await repository.syncFromServer()
+        refreshData()
+    }
+    
+    func updateSortOption(_ option: BookmarkSortOption) {
+        sortOption = option
+        refreshData()
     }
     
     func toggleGrouping() {
@@ -85,18 +100,16 @@ class BookmarkViewModel: ObservableObject {
         }
         
         Task {
-            // ✅ FIX: Load book if it's not currently playing
             if player.book?.id != book.id {
                 AppLogger.general.debug("[BookmarkVM] Loading book: \(book.title)")
                 await player.load(
                     book: book,
                     isOffline: dependencies.downloadRepository.getDownloadStatus(for: book.id).isDownloaded,
-                    restoreState: false,  // Don't restore - we'll jump to bookmark
+                    restoreState: false,
                     autoPlay: false
                 )
             }
             
-            // ✅ Now jump to the bookmark position
             await MainActor.run {
                 player.jumpToBookmark(enriched.bookmark)
             }
@@ -170,22 +183,13 @@ class BookmarkViewModel: ObservableObject {
         editedBookmarkTitle = ""
     }
 
-    
     // MARK: - Helper
     private func searchFilter(_ enriched: EnrichedBookmark) -> Bool {
         if searchText.isEmpty { return true }
         
         let query = searchText.lowercased()
-        
-        // Search in bookmark title
-        if enriched.bookmark.title.lowercased().contains(query) {
-            return true
-        }
-        
-        // Search in book title
-        if let book = enriched.book, book.title.lowercased().contains(query) {
-            return true
-        }
+        if enriched.bookmark.title.lowercased().contains(query) { return true }
+        if let book = enriched.book, book.title.lowercased().contains(query) { return true }
         
         return false
     }

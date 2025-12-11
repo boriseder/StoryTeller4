@@ -1,9 +1,3 @@
-//
-//  BookmarkRow.swift
-//  StoryTeller3
-//
-//  Created by Boris Eder on 28.11.25.
-//
 import SwiftUI
 
 // MARK: - Bookmark Row
@@ -15,7 +9,7 @@ struct BookmarkRow: View {
     let onDelete: () -> Void
     
     @EnvironmentObject var theme: ThemeManager
-    @EnvironmentObject var viewModel: BookmarkViewModel
+    // FIX: Removed unused @EnvironmentObject which caused the error
     
     @State private var isPressed = false
     @State private var showDeleteConfirm = false

@@ -1,11 +1,14 @@
 import SwiftUI
+import Observation
 import Combine
 
 @MainActor
-class PlayerViewModel: ObservableObject {
-    // MARK: - Published UI State
-    @Published var controlState = PlayerControlState()
+@Observable
+class PlayerViewModel {
+    // MARK: - UI State
+    var controlState = PlayerControlState()
     
+    // MARK: - Dependencies
     let player: AudioPlayer
     let api: AudiobookshelfClient
     

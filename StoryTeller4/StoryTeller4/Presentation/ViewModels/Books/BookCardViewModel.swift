@@ -1,19 +1,20 @@
 import Foundation
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class BookCardViewModel: ObservableObject, Identifiable {
+@Observable
+class BookCardViewModel: Identifiable {
     let book: Book
     private let container: DependencyContainer
     
-    // Computed properties instead of stored references
+    // Direct accessors
     private var player: AudioPlayer { container.player }
     private var downloadManager: DownloadManager { container.downloadManager }
     
-    // Cached playback state for non-current books
-    @Published private var cachedState: PlaybackState?
-    @Published private var isLoadingState = true
+    // State
+    var cachedState: PlaybackState?
+    var isLoadingState = true
     
     // Identifiable conformance
     nonisolated var id: String { book.id }
@@ -22,13 +23,9 @@ class BookCardViewModel: ObservableObject, Identifiable {
         self.book = book
         self.container = container
         
-        // Load cached state synchronously from local storage first
-        // PlaybackRepository is @MainActor singleton, safe to call from here
+        // Synchronous load
         self.cachedState = PlaybackRepository.shared.getPlaybackState(for: book.id)
         self.isLoadingState = false
-        
-        // Optional: Refresh from server
-        // Task { await refreshFromServer() }
     }
     
     var isCurrentBook: Bool {
