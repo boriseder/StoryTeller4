@@ -1,22 +1,23 @@
 // Add @preconcurrency to silence Sendable warnings for system frameworks
 @preconcurrency import Foundation
 import AVFoundation
-import Combine
 import UIKit
+import Observation
 
 // MARK: - Audio Player
 @MainActor
-class AudioPlayer: NSObject, ObservableObject {
+@Observable
+class AudioPlayer: NSObject {
     
-    // MARK: - Published Properties
-    @Published var book: Book?
-    @Published var currentChapterIndex: Int = 0
-    @Published var isPlaying = false
-    @Published var duration: Double = 0
-    @Published var currentTime: Double = 0
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var playbackRate: Float = 1.0
+    // MARK: - Properties
+    var book: Book?
+    var currentChapterIndex: Int = 0
+    var isPlaying = false
+    var duration: Double = 0
+    var currentTime: Double = 0
+    var isLoading = false
+    var errorMessage: String?
+    var playbackRate: Float = 1.0
     
     // MARK: - Dependencies
     private let avPlayerService: AVPlayerService
@@ -384,23 +385,19 @@ class AudioPlayer: NSObject, ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
-                // Extract values locally to avoid passing the whole Notification object into the Task
                 guard let userInfo = notification.userInfo,
                       let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
                       let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
                 
-                // Extract options if they exist (safe to default to 0/nil)
                 let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt
                 
                 Task { @MainActor [weak self] in
-                    // Pass extracted values instead of 'notification'
                     self?.handleInterruption(type: type, optionsValue: optionsValue)
                 }
             }
             notificationWrapper.add(observer)
         }
         
-        // Update the handler signature to accept extracted values
         private func handleInterruption(type: AVAudioSession.InterruptionType, optionsValue: UInt?) {
             switch type {
             case .began:
@@ -451,7 +448,6 @@ class AudioPlayer: NSObject, ObservableObject {
     }
     
     private func setupPlayerItemObservers(_ playerItem: AVPlayerItem) {
-        // Clear old observations
         keyValueObservations.removeAll()
         
         // 1. Status Observer
@@ -543,9 +539,7 @@ class AudioPlayer: NSObject, ObservableObject {
             timeObserver = nil
         }
         
-        // KVO tokens invalidate automatically on replacement/removal
         keyValueObservations.removeAll()
-        
         avPlayerService.cleanup()
     }
     

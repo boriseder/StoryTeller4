@@ -1,4 +1,3 @@
-
 import SwiftUI
 
 // MARK: - Author Image View
@@ -7,13 +6,16 @@ struct AuthorImageView: View {
     let api: AudiobookshelfClient?
     let size: CGFloat
     
-    @StateObject private var loader: AuthorImageLoader
+    // FIX: Use @State for @Observable loader
+    @State private var loader: AuthorImageLoader
     
     init(author: Author, api: AudiobookshelfClient? = nil, size: CGFloat = 60) {
         self.author = author
         self.api = api
         self.size = size
-        self._loader = StateObject(wrappedValue: AuthorImageLoader(
+        
+        // FIX: Initialize with State(initialValue:)
+        self._loader = State(initialValue: AuthorImageLoader(
             author: author,
             api: api
         ))

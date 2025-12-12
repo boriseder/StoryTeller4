@@ -197,19 +197,15 @@ struct HomeView: View {
 struct PersonalizedSectionView: View {
     let section: PersonalizedSection
     
-    // Player remains ObservableObject (legacy)
-    @ObservedObject var player: AudioPlayer
+    // FIX: Player is @Observable, use 'let'
+    let player: AudioPlayer
     
     let api: AudiobookshelfClient
-    
-    // FIX: DownloadManager is @Observable, use 'let' instead of @ObservedObject
     let downloadManager: DownloadManager
-    
     let onBookSelected: (Book) -> Void
     let onSeriesSelected: (Series) -> Void
     let onAuthorSelected: (Author) -> Void
     
-    // FIX: Use @Environment(Type.self)
     @Environment(ThemeManager.self) var theme
     @Environment(DependencyContainer.self) var dependencies
 
@@ -229,6 +225,8 @@ struct PersonalizedSectionView: View {
             }
         }
     }
+    
+    // ... [Rest of PersonalizedSectionView remains same as provided in Step 3, just the property declaration changed]
     
     private var sectionHeader: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -278,8 +276,6 @@ struct PersonalizedSectionView: View {
     }
 
     private var seriesSection: some View {
-        // FIX: Iterate directly over entities (which are Identifiable)
-        // This solves the 'RandomAccessCollection' compiler error with indices
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: DSLayout.contentGap) {
                 ForEach(section.entities) { entity in
@@ -315,7 +311,6 @@ struct PersonalizedSectionView: View {
         }
     }
 }
-
 // MARK: - Series Card View
 struct SeriesCardView: View {
     let entity: PersonalizedEntity

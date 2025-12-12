@@ -133,9 +133,9 @@ struct ContentView: View {
                 iPhoneLayout
             }
         }
-        .environmentObject(dependencies.sleepTimerService)
+        // FIX: Update from .environmentObject() to .environment()
+        .environment(dependencies.sleepTimerService)
     }
-    
     // MARK: - iPad Layout (Sidebar)
     
     private var iPadLayout: some View {

@@ -60,7 +60,10 @@ struct ChapterRowView: View {
 
 // MARK: - Playback Settings View
 struct PlaybackSettingsView: View {
-    @ObservedObject var player: AudioPlayer
+    // FIX: Changed from @ObservedObject to standard 'let' property.
+    // Since AudioPlayer is now @Observable, the view updates automatically when properties change.
+    let player: AudioPlayer
+    
     @Environment(\.dismiss) private var dismiss
     
     private let playbackRateOptions: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
@@ -111,7 +114,6 @@ struct PlaybackSettingsView: View {
                         // Ensure rate is applied when slider interaction ends
                         if player.isPlaying {
                             // The player will automatically apply the rate when playing
-                            // No need to access private player property
                         }
                         AppLogger.general.debug("[PlaybackSettings] Speed slider interaction ended, rate applied: \(player.playbackRate)")
                     }

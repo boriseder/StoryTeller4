@@ -1,11 +1,12 @@
 import SwiftUI
-import Combine
+import Observation
 
 @MainActor
-class AuthorImageLoader: ObservableObject {
-    @Published var image: UIImage?
-    @Published var isLoading: Bool = false
-    @Published var hasError: Bool = false
+@Observable
+class AuthorImageLoader {
+    var image: UIImage?
+    var isLoading: Bool = false
+    var hasError: Bool = false
     
     private let author: Author
     private let api: AudiobookshelfClient?
@@ -64,7 +65,7 @@ class AuthorImageLoader: ObservableObject {
     private func downloadAuthorImage() async -> UIImage? {
         guard let api = api else { return nil }
         
-        // DATEN EXTRAHIEREN (auf MainActor) bevor wir in den Hintergrund gehen
+        // Extract data on MainActor before async call
         let baseURL = api.baseURLString
         let token = api.authToken
         let authorId = author.id
@@ -88,7 +89,6 @@ class AuthorImageLoader: ObservableObject {
         isLoading = false
     }
     
-    deinit {
-        loadTask?.cancel()
-    }
+    // FIX: Removed deinit to resolve MainActor isolation error.
+    // The Task uses [weak self], so it will complete safely without manual cancellation.
 }

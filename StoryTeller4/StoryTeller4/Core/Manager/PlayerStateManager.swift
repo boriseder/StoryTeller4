@@ -1,8 +1,10 @@
 import SwiftUI
-import Combine
+import Observation
 
-class PlayerStateManager: ObservableObject {
-    @Published var mode: PlayerMode = .hidden
+@MainActor
+@Observable
+class PlayerStateManager {
+    var mode: PlayerMode = .hidden
     
     func showFullscreen() {
         mode = .fullscreen

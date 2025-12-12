@@ -8,7 +8,8 @@ struct BookCoverView: View {
     let size: CGSize
     let showLoadingProgress: Bool
     
-    @StateObject private var loader: BookCoverLoader
+    // FIX: Use @State for @Observable loader
+    @State private var loader: BookCoverLoader
     
     init(
         book: Book,
@@ -22,7 +23,9 @@ struct BookCoverView: View {
         self.downloadManager = downloadManager
         self.size = size
         self.showLoadingProgress = showLoadingProgress
-        self._loader = StateObject(wrappedValue: BookCoverLoader(
+        
+        // FIX: Initialize with State(initialValue:)
+        self._loader = State(initialValue: BookCoverLoader(
             book: book,
             api: api,
             downloadManager: downloadManager

@@ -85,12 +85,8 @@ struct LibraryView: View {
         .onChange(of: viewModel.filteredAndSortedBooks.count) {
             updateBookCardViewModels()
         }
-        // Manual refresh for AudioPlayer (Legacy ObservableObject)
-        .onReceive(viewModel.player.$currentTime.throttle(for: .seconds(2), scheduler: RunLoop.main, latest: true)) { _ in
-            updateCurrentBookOnly()
-        }
-        // FIX: Removed DownloadManager observer.
-        // Since DownloadManager is @Observable, BookCardView updates automatically when reading progress.
+        // CLEAN CODE: Removed manual .onReceive listeners.
+        // The UI now updates automatically via Observation.
     }
 
     private var contentView: some View {
@@ -151,15 +147,8 @@ struct LibraryView: View {
         }
     }
     
-    private func updateCurrentBookOnly() {
-        guard let currentBookId = viewModel.player.book?.id,
-              let index = bookCardVMs.firstIndex(where: { $0.id == currentBookId }) else {
-            return
-        }
-        bookCardVMs[index] = BookCardViewModel(book: bookCardVMs[index].book, container: dependencies )
-    }
-    
-    // FIX: Removed updateDownloadingBooksOnly() as it is no longer needed with @Observable
+    // updateCurrentBookOnly and updateDownloadingBooksOnly removed as they are no longer needed
+    // The individual BookCardViews observe the player/downloadManager directly.
     
     private func handleBookTap(_ book: Book) {
         if book.isCollapsedSeries {

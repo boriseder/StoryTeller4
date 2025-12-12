@@ -2,7 +2,7 @@
 @preconcurrency import Foundation
 import SwiftUI
 import UserNotifications
-import Combine
+import Observation
 
 // MARK: - Sleep Timer Mode
 enum SleepTimerMode: Equatable, CustomStringConvertible, Sendable {
@@ -41,18 +41,19 @@ private struct SleepTimerPersistenceState: Codable, Sendable {
 
 // MARK: - Sleep Timer Service
 @MainActor
-class SleepTimerService: ObservableObject {
-    @Published var selectedMinutes: Int = 30
-    @Published var isTimerActive = false
-    @Published var remainingTime: TimeInterval = 0
-    @Published var currentMode: SleepTimerMode?
+@Observable
+class SleepTimerService {
+    var selectedMinutes: Int = 30
+    var isTimerActive = false
+    var remainingTime: TimeInterval = 0
+    var currentMode: SleepTimerMode?
     
     let player: AudioPlayer
     private let timerOptions = [5, 10, 15, 30, 45, 60, 90, 120]
     
     private let timerService: TimerManaging
     
-    // ✅ FIX: Use wrapper to handle observer cleanup safely
+    // Helper to handle observer cleanup safely
     private let observerWrapper = ObserverWrapper()
     
     init(
@@ -216,7 +217,6 @@ class SleepTimerService: ObservableObject {
                 self.saveTimerState(endDate: endDate, mode: mode)
             }
         }
-        // ✅ FIX: Use wrapper to store observer
         observerWrapper.add(backgroundObserver)
         
         requestNotificationPermission()
@@ -292,25 +292,31 @@ class SleepTimerService: ObservableObject {
             await service.cancel()
         }
         
-        // Use Task.detached for logging since we're in deinit
         Task.detached {
             AppLogger.general.debug("[SleepTimer] Deinitialized")
         }
-        
-        // ✅ FIX: No manual observer removal here.
-        // observerWrapper will be deinitialized automatically, cleaning up observers.
     }
 }
 
 // MARK: - Observer Wrapper
-private final class ObserverWrapper {
+// FIX: Replaced generic LockedState with internal locking to avoid redeclaration conflicts
+private final class ObserverWrapper: @unchecked Sendable {
     private var observers: [NSObjectProtocol] = []
+    private let lock = NSLock()
     
     func add(_ observer: NSObjectProtocol) {
+        lock.lock()
+        defer { lock.unlock() }
         observers.append(observer)
     }
     
     deinit {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        // Snapshot observers safely
+        lock.lock()
+        let obs = observers
+        lock.unlock()
+        
+        // Remove from NotificationCenter (thread-safe)
+        obs.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }
