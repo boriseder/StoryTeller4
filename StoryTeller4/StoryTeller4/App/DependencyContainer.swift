@@ -35,8 +35,6 @@ final class DependencyContainer {
     
     var appState: AppStateManager = AppStateManager.shared
     
-    // FIX: Removed 'lazy' and initialization closures.
-    // These are now standard properties initialized in init().
     var downloadManager: DownloadManager
     var player: AudioPlayer
     var playerStateManager: PlayerStateManager
@@ -115,6 +113,10 @@ final class DependencyContainer {
         _apiClient = AudiobookshelfClient(baseURL: baseURL, authToken: token)
         isConfigured = true
         
+        // FIX (Bug 1): Reset cached repositories so they are recreated with the new client
+        _bookRepository = nil
+        _libraryRepository = nil
+        
         if let api = _apiClient {
             playbackRepository.configure(api: api)
             AppLogger.general.debug("[Container] PlaybackRepository configured")
@@ -143,13 +145,33 @@ final class DependencyContainer {
     
     // MARK: - Bookmark Enrichment Setup
     private func setupBookmarkEnrichment() {
+        // FIX (Bug 4): Observe repository changes to trigger book fetching for new bookmarks
+        bookmarkRepository.$bookmarks
+            .sink { [weak self] bookmarksMap in
+                Task { [weak self] in
+                    await self?.handleBookmarksUpdate(bookmarksMap)
+                }
+            }
+            .store(in: &cancellables)
+            
         AppLogger.general.debug("[Container] Bookmark enrichment observers configured")
+    }
+    
+    // Helper to fetch missing books for bookmarks
+    private func handleBookmarksUpdate(_ bookmarksMap: [String: [Bookmark]]) async {
+        for libraryItemId in bookmarksMap.keys {
+            // Only fetch if not already in cache
+            if bookLookupCache[libraryItemId] == nil {
+                await preloadBookForBookmarks(libraryItemId)
+            }
+        }
     }
     
     private func updateBookLookupCache(with books: [Book]) {
         for book in books {
             bookLookupCache[book.id] = book
         }
+        // FIX (Bug 4): Notify observers that new book data is available
         NotificationCenter.default.post(name: .init("BookmarkEnrichmentUpdated"), object: nil)
     }
     
@@ -297,13 +319,17 @@ final class DependencyContainer {
     
     func preloadBookForBookmarks(_ bookId: String) async {
         if bookLookupCache[bookId] != nil { return }
+        
+        // 1. Check downloads (fast)
         if let book = downloadManager.downloadedBooks.first(where: { $0.id == bookId }) {
-            bookLookupCache[bookId] = book
+            updateBookLookupCache(with: [book])
             return
         }
+        
+        // 2. Fetch from API (if online)
         do {
             let book = try await bookRepository.fetchBookDetails(bookId: bookId)
-            bookLookupCache[bookId] = book
+            updateBookLookupCache(with: [book])
         } catch {
             AppLogger.general.debug("[Container] Failed to preload book \(bookId): \(error)")
         }

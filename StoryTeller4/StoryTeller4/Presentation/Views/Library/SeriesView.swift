@@ -15,13 +15,13 @@ struct SeriesView: View {
     var body: some View {
         ZStack {
             if theme.backgroundStyle == .dynamic {
-                Color.accent.ignoresSafeArea()
+                DynamicBackground()
+                    .transition(.opacity)
+                    .zIndex(0)
             }
 
-            ZStack {
-                contentView
-                    .transition(.opacity)
-            }
+            contentView
+                .transition(.opacity)
         }
         .navigationTitle("Series")
         .navigationBarTitleDisplayMode(.large)
@@ -49,9 +49,6 @@ struct SeriesView: View {
     
     private var contentView: some View {
         ZStack {
-            if theme.backgroundStyle == .dynamic {
-                DynamicBackground()
-            }
 
             ScrollView {
                 LazyVStack(spacing: DSLayout.contentGap) {

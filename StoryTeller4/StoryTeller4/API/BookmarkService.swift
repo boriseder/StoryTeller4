@@ -66,15 +66,12 @@ class DefaultBookmarkService: BookmarkServiceProtocol {
         
         AppLogger.general.debug("[BookmarkService] Creating bookmark: '\(title)' at \(time)s")
         
-        struct BookmarkResponse: Codable {
-            let bookmark: Bookmark
-        }
-        
-        let response: BookmarkResponse = try await networkService.performRequest(request, responseType: BookmarkResponse.self)
+        // FIX: Decode Bookmark directly. API returns the object, not a wrapper.
+        let bookmark = try await networkService.performRequest(request, responseType: Bookmark.self)
         
         AppLogger.general.debug("[BookmarkService] ✅ Bookmark created")
         
-        return response.bookmark
+        return bookmark
     }
     
     /// Update an existing bookmark's title
@@ -100,15 +97,12 @@ class DefaultBookmarkService: BookmarkServiceProtocol {
         
         AppLogger.general.debug("[BookmarkService] Updating bookmark at \(time)s to '\(title)'")
         
-        struct BookmarkResponse: Codable {
-            let bookmark: Bookmark
-        }
-        
-        let response: BookmarkResponse = try await networkService.performRequest(request, responseType: BookmarkResponse.self)
+        // FIX: Decode Bookmark directly. API returns the object, not a wrapper.
+        let bookmark = try await networkService.performRequest(request, responseType: Bookmark.self)
         
         AppLogger.general.debug("[BookmarkService] ✅ Bookmark updated")
         
-        return response.bookmark
+        return bookmark
     }
     
     /// Delete a bookmark

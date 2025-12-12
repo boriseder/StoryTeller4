@@ -370,10 +370,20 @@ struct ContentView: View {
             do {
                 let token = try KeychainService.shared.getToken(for: username)
                 dependencies.configureAPI(baseURL: baseURL, token: token)
+                
+                // FIX: Recreate ViewModels now that dependencies are configured
+                // This ensures they use the valid API client instead of the placeholder
+                homeViewModel = dependencies.makeHomeViewModel()
+                libraryViewModel = dependencies.makeLibraryViewModel()
+                seriesViewModel = dependencies.makeSeriesViewModel()
+                authorsViewModel = dependencies.makeAuthorsViewModel()
+                downloadsViewModel = dependencies.makeDownloadsViewModel()
+                
                 let client = dependencies.apiClient!
                 let connectionResult = await testConnection(client: client)
                 
                 switch connectionResult {
+                
                 case .success:
                     appState.isServerReachable = true
                     player.configure(baseURL: baseURL, authToken: token, downloadManager: downloadManager)

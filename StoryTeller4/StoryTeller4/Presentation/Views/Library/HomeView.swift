@@ -20,9 +20,11 @@ struct HomeView: View {
     var body: some View {
         ZStack {
             if theme.backgroundStyle == .dynamic {
-                Color.accent.ignoresSafeArea()
+                DynamicBackground()
+                    .transition(.opacity)
+                    .zIndex(0)
             }
-          
+
             contentView
                 .transition(.opacity)
 
@@ -78,9 +80,6 @@ struct HomeView: View {
         
     private var contentView: some View {
         ZStack {
-            if theme.backgroundStyle == .dynamic {
-                DynamicBackground()
-            }
 
             ScrollView {
                 LazyVStack(spacing: DSLayout.contentGap) {

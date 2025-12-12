@@ -15,15 +15,12 @@ struct ChaptersListView: View {
     @State private var chapterVMs: [ChapterStateViewModel] = []
     @State private var updateTimer: Timer?
     @State private var scrollTarget: Int?
-    
-    // FIX: Use @State for @Observable view model
     @State private var bookmarkViewModel: BookmarkViewModel
     
     // Filter bookmarks for current book only
     private var currentBookBookmarks: [EnrichedBookmark] {
         guard let bookId = player.book?.id else { return [] }
         
-        // FIX: Simplified closure syntax to resolve type-check timeout
         let bookBookmarks = bookmarkViewModel.allBookmarks.filter { enriched in
             enriched.bookmark.libraryItemId == bookId
         }
@@ -35,7 +32,6 @@ struct ChaptersListView: View {
     
     init(player: AudioPlayer) {
         self.player = player
-        // FIX: Initialize @Observable model using State(initialValue:)
         _bookmarkViewModel = State(initialValue: BookmarkViewModel())
     }
     
@@ -58,6 +54,11 @@ struct ChaptersListView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, DSLayout.screenPadding)
                 .padding(.bottom, DSLayout.contentGap)
+                .onChange(of: selectedTab) { _, _ in
+                    // Haptic feedback on tab change
+                    let generator = UISelectionFeedbackGenerator()
+                    generator.selectionChanged()
+                }
                 
                 // Content
                 if selectedTab == .chapters {
@@ -82,7 +83,9 @@ struct ChaptersListView: View {
                         .foregroundColor(.primary)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { dismiss() }) {
+                    Button(action: {
+                        dismiss()
+                    }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: DSLayout.icon))
                     }
@@ -95,7 +98,6 @@ struct ChaptersListView: View {
             .onDisappear {
                 stopPeriodicUpdates()
             }
-            // Bindable access for the alert
             .alert("Edit Bookmark", isPresented: Binding(
                 get: { bookmarkViewModel.editingBookmark != nil },
                 set: { if !$0 { bookmarkViewModel.cancelEditing() } }
@@ -109,6 +111,10 @@ struct ChaptersListView: View {
                 
                 Button("Save") {
                     bookmarkViewModel.saveEditedBookmark()
+                    
+                    // Haptic feedback
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
                 }
                 .disabled(bookmarkViewModel.editedBookmarkTitle.trimmingCharacters(in: .whitespaces).isEmpty)
             } message: {
@@ -234,10 +240,14 @@ struct ChaptersListView: View {
                     ForEach(currentBookBookmarks) { enriched in
                         BookmarkRow(
                             enriched: enriched,
-                            showBookInfo: false, // Don't show book info - we're already in book context
+                            showBookInfo: false,
                             onTap: {
-                                // Jump and dismiss
                                 player.jumpToBookmark(enriched.bookmark)
+                                
+                                // Haptic feedback
+                                let generator = UIImpactFeedbackGenerator(style: .medium)
+                                generator.impactOccurred()
+                                
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                     dismiss()
                                 }
@@ -247,12 +257,12 @@ struct ChaptersListView: View {
                             },
                             onDelete: {
                                 bookmarkViewModel.deleteBookmark(enriched)
+                                
+                                // Haptic feedback
+                                let generator = UINotificationFeedbackGenerator()
+                                generator.notificationOccurred(.success)
                             }
                         )
-                        // Note: Using environmentObject for rows is fine if they expect it,
-                        // but with @Observable, passing the viewModel or specific bindings is cleaner.
-                        // Assuming BookmarkRow hasn't been migrated to remove EnvironmentObject dependency yet.
-                        // .environmentObject(bookmarkViewModel) // REMOVED: Cannot inject @Observable into EnvironmentObject
                     }
                 }
                 .padding(.horizontal, DSLayout.screenPadding)
@@ -304,6 +314,10 @@ struct ChaptersListView: View {
         
         player.setCurrentChapter(index: index)
         
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
         if wasPlaying {
             player.play()
         }
@@ -314,7 +328,7 @@ struct ChaptersListView: View {
     }
 }
 
-// MARK: - Chapter Card View (Keep existing implementation)
+// MARK: - Chapter Card View
 
 struct ChapterCardView: View {
     let viewModel: ChapterStateViewModel
@@ -432,9 +446,14 @@ struct ChapterCardView: View {
         .scaleEffect(isPressed ? 0.98 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in
+                    isPressed = false
+                    onTap()
+                }
+        )
     }
     
     private var chapterProgress: Double {

@@ -7,134 +7,153 @@ struct BookmarkRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     
-    // FIX: Use @Environment(Type.self)
     @Environment(ThemeManager.self) var theme
-    
     @State private var isPressed = false
     @State private var showDeleteConfirm = false
     
     var body: some View {
-        HStack(spacing: DSLayout.elementGap) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.orange, Color.orange.opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
+        Button(action: handleTap) {
+            HStack(spacing: 16) {
+                // Leading: Icon
+                bookmarkIcon
                 
-                Image(systemName: "bookmark.fill")
-                    .font(DSText.button)
-                    .foregroundColor(.white)
-            }
-            .padding(.leading, DSLayout.elementPadding)
-            
-            VStack(alignment: .leading, spacing: DSLayout.elementGap) {
-                Text(enriched.bookmark.title)
-                    .font(DSText.emphasized)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .foregroundColor(theme.textColor) // Using theme here
-                
-                HStack(spacing: DSLayout.elementGap) {
-                    HStack(spacing: DSLayout.tightGap) {
-                        Image(systemName: "clock")
-                            .font(DSText.metadata)
-                        Text(enriched.bookmark.formattedTime)
-                            .font(DSText.metadata)
-                            .monospacedDigit()
-                    }
-                    .foregroundColor(.secondary)
+                // Center: Content
+                VStack(alignment: .leading, spacing: 6) {
+                    // Title (prominent)
+                    Text(enriched.bookmark.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(theme.textColor)
+                        .lineLimit(2)
                     
-                    HStack(spacing: DSLayout.tightGap) {
-                        Image(systemName: "calendar")
-                            .font(DSText.metadata)
-                        Text(enriched.bookmark.createdAt.formatted(date: .abbreviated, time: .omitted))
-                            .font(DSText.metadata)
-                    }
-                    .foregroundColor(.secondary)
-                                        
-                    if showBookInfo {
-                        if enriched.isBookLoaded {
-                            Text(enriched.bookTitle)
-                                .font(DSText.metadata)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        } else {
-                            HStack(spacing: 4) {
-                                ProgressView()
-                                    .scaleEffect(0.6)
-                                Text("Loading...")
-                                    .font(.caption)
-                            }
-                            .foregroundColor(.secondary)
+                    // Metadata Stack
+                    VStack(alignment: .leading, spacing: 3) {
+                        // Primary: Time (most important for bookmarks!)
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.accentColor)
+                            Text(enriched.bookmark.formattedTime)
+                                .font(.system(size: 14, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundColor(.accentColor)
                         }
+                        
+                        // Secondary: Date & Book
+                        HStack(spacing: 12) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "calendar")
+                                    .font(.system(size: 10))
+                                Text(enriched.bookmark.createdAt.formatted(.dateTime.day().month().year(.twoDigits)))
+                                    .font(.system(size: 13))
+                            }
+                            
+                            if showBookInfo {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "book.closed.fill")
+                                        .font(.system(size: 10))
+                                    
+                                    if enriched.isBookLoaded {
+                                        Text(enriched.bookTitle)
+                                            .font(.system(size: 13))
+                                            .lineLimit(1)
+                                    } else {
+                                        ProgressView()
+                                            .scaleEffect(0.6)
+                                    }
+                                }
+                            }
+                        }
+                        .foregroundColor(.secondary)
                     }
                 }
-            }
-            
-            Spacer()
-            
-            HStack(spacing: DSLayout.tightGap) {
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 16))
-                        .foregroundColor(.accentColor)
-                        .frame(width: 32, height: 32)
-                        .background(Color.accentColor.opacity(0.1))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                Button(action: { showDeleteConfirm = true }) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 16))
-                        .foregroundColor(.red)
-                        .frame(width: 32, height: 32)
-                        .background(Color.red.opacity(0.1))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
+                // Trailing: Actions
+                actionButtons
             }
-            .padding(.trailing, DSLayout.elementPadding)
+            .padding(16)
+            .background(rowBackground)
+            .contentShape(Rectangle())
         }
-        .padding(DSLayout.elementPadding)
-        .background(
-            RoundedRectangle(cornerRadius: DSCorners.element)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .shadow(
-                    color: Color.black.opacity(0.05),
-                    radius: isPressed ? 4 : 8,
-                    x: 0,
-                    y: isPressed ? 2 : 4
-                )
-        )
-        .scaleEffect(isPressed ? 0.98 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeIn(duration: 0.1)) {
-                isPressed = true
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.easeOut(duration: 0.1)) {
-                    isPressed = false
-                }
-                onTap()
-            }
-        }
-        .alert("Delete Bookmark?", isPresented: $showDeleteConfirm) {
+        .buttonStyle(.plain)
+        .confirmationDialog("Delete Bookmark?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: onDelete)
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                onDelete()
-            }
         } message: {
             Text("This action cannot be undone.")
+        }
+    }
+    
+    // MARK: - Subviews
+    
+    private var bookmarkIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.orange, Color.orange.opacity(0.8)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 44, height: 44)
+            
+            Image(systemName: "bookmark.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+    
+    private var actionButtons: some View {
+        VStack(spacing: 8) {
+            Button(action: onEdit) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 32, height: 32)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            
+            Button(action: { showDeleteConfirm = true }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.red)
+                    .frame(width: 32, height: 32)
+                    .background(Color.red.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(Color(.secondarySystemGroupedBackground))
+            .shadow(
+                color: Color.black.opacity(0.08),
+                radius: isPressed ? 2 : 6,
+                x: 0,
+                y: isPressed ? 1 : 3
+            )
+    }
+    
+    // MARK: - Actions
+    
+    private func handleTap() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        
+        withAnimation(.easeIn(duration: 0.1)) {
+            isPressed = true
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                isPressed = false
+            }
+            onTap()
         }
     }
 }

@@ -83,11 +83,10 @@ struct BookmarksView: View {
     private var bookmarksList: some View {
         List {
             if viewModel.groupByBook {
-                ForEach(viewModel.groupedBookmarks, id: \.book?.id) { group in
-                    Section(header: Text(group.book?.title ?? "Unknown Book")) {
+                ForEach(viewModel.groupedBookmarks) { group in
+                    Section(header: Text(group.title)) {
                         ForEach(group.bookmarks) { enriched in
-                            BookmarkRow(
-                                enriched: enriched,
+                            BookmarkRow(                                enriched: enriched,
                                 onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
                                 onEdit: { viewModel.startEditingBookmark(enriched) },
                                 onDelete: { viewModel.deleteBookmark(enriched) }

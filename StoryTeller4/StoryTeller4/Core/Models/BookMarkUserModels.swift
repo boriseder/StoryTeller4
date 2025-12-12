@@ -132,6 +132,19 @@ enum BookmarkSortOption: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Helper Types
+// A stable grouping structure.
+// We use libraryItemId as the ID because it is always available, preventing 'nil' ID crashes.
+struct BookmarkGroup: Identifiable, Sendable {
+    let id: String // This corresponds to libraryItemId
+    let book: Book?
+    let bookmarks: [EnrichedBookmark]
+    
+    var title: String {
+        book?.title ?? "Loading..."
+    }
+}
+
 // MARK: - User Data Model
 struct UserData: Codable, Sendable {
     let id: String

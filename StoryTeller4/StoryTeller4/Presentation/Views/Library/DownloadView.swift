@@ -18,7 +18,9 @@ struct DownloadsView: View {
         
         ZStack {
             if theme.backgroundStyle == .dynamic {
-                Color.accent.ignoresSafeArea()
+                DynamicBackground()
+                    .transition(.opacity)
+                    .zIndex(0)
             }
 
             contentView()
@@ -62,9 +64,6 @@ struct DownloadsView: View {
     
     private func contentView() -> some View {
         ZStack {
-            if theme.backgroundStyle == .dynamic {
-                DynamicBackground()
-            }
             
             if viewModel.showStorageWarning {
                 VStack {

@@ -13,10 +13,11 @@ struct AuthorsView: View {
         ZStack {
 
             if theme.backgroundStyle == .dynamic {
-                Color.accent.ignoresSafeArea()
                 DynamicBackground()
+                    .transition(.opacity)
+                    .zIndex(0)
             }
-            
+
             ScrollView {
                 LazyVStack(spacing: DSLayout.tightGap) {
                     ForEach(viewModel.authors) { author in

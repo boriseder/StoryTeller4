@@ -32,17 +32,24 @@ class BookmarkViewModel {
         allBookmarks.filter { searchFilter($0) }
     }
     
-    var groupedBookmarks: [(book: Book?, bookmarks: [EnrichedBookmark])] {
-        // Group the already enriched and sorted bookmarks
+    // FIX: Change return type to [BookmarkGroup] to provide stable identities
+    var groupedBookmarks: [BookmarkGroup] {
+        // 1. Group by libraryItemId (always exists)
         let grouped = Dictionary(grouping: filteredBookmarks) { $0.bookmark.libraryItemId }
         
-        return grouped.map { (itemId, bookmarks) in
-            let book = dependencies.getGroupedEnrichedBookmarks().first(where: { $0.book?.id == itemId })?.book
-            return (book, bookmarks)
+        // 2. Map to stable BookmarkGroup
+        let groups = grouped.map { (itemId, bookmarks) -> BookmarkGroup in
+            // Try to resolve the book from the first enriched bookmark
+            let book = bookmarks.first?.book
+            return BookmarkGroup(id: itemId, book: book, bookmarks: bookmarks)
         }
-        .sorted {
-            guard let b1 = $0.book, let b2 = $1.book else { return false }
-            return b1.title < b2.title
+        
+        // 3. Sort by book title (if available) or ID
+        return groups.sorted { group1, group2 in
+            guard let b1 = group1.book, let b2 = group2.book else {
+                return group1.id < group2.id
+            }
+            return b1.title.localizedCompare(b2.title) == .orderedAscending
         }
     }
     
