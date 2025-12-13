@@ -37,11 +37,15 @@ struct PlayerView: View {
             .background(DSColor.background)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+
+            /*
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     moreButton
                 }
             }
+ */
+            
             .sheet(isPresented: $vm.showingChaptersList) {
                 ChaptersListView(player: viewModel.player)
                     .presentationDragIndicator(.visible)
@@ -58,7 +62,7 @@ struct PlayerView: View {
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showingAddBookmark) {
-                EnhancedBookmarkSheet(
+                BookmarkSheet(
                     player: viewModel.player,
                     isPresented: $showingAddBookmark
                 )
@@ -444,27 +448,21 @@ struct PlayerView: View {
     
     private var moreMenuButton: some View {
         Menu {
+            
+            Button(action: {}) {
+                Label("Audio Output", systemImage: "speaker.fill")
+            }
+
+            Divider()
+            
             Button(action: {
                 viewModel.showingSleepTimer = true
             }) {
                 Label("Sleep Timer", systemImage: "moon")
             }
             
-            #if !targetEnvironment(simulator)
-            Button(action: {}) {
-                Label("Audio Output", systemImage: "speaker.fill")
-            }
-            #endif
             
-            Divider()
             
-            Button(role: .destructive, action: {
-                viewModel.player.pause()
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.success)
-            }) {
-                Label("Stop Playback", systemImage: "stop")
-            }
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: "ellipsis")
@@ -476,6 +474,7 @@ struct PlayerView: View {
         }
     }
     
+/*
     private var moreButton: some View {
         Menu {
             Button(action: { viewModel.player.pause() }) {
@@ -485,6 +484,7 @@ struct PlayerView: View {
             Image(systemName: "ellipsis")
         }
     }
+*/
     
     // MARK: - Progress Helpers
     

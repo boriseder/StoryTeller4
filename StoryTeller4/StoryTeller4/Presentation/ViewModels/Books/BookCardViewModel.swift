@@ -91,3 +91,11 @@ class BookCardViewModel: Identifiable {
         }
     }
 }
+
+// Extension for BookCardViewModel (add these properties)
+extension BookCardViewModel {
+    var isFinished: Bool {
+        // Implement: return currentProgress >= 0.98
+        return currentProgress >= 0.98
+    }
+}

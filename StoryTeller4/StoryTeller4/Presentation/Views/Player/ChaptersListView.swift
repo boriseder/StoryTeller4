@@ -328,7 +328,131 @@ struct ChaptersListView: View {
     }
 }
 
-// MARK: - Chapter Card View
+// MARK: - Reusable Chapter List Component
+
+/// Reusable chapter list component for static chapter display (e.g., BookDetailView)
+struct StaticChapterListView: View {
+    let chapters: [Chapter]
+    var showSectionTitle: Bool = true
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSLayout.elementGap) {
+            if showSectionTitle {
+                Text("Chapters")
+                    .font(DSText.prominent)
+                    .foregroundColor(DSColor.primary)
+            }
+            
+            ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                StaticChapterRow(
+                    index: index,
+                    chapter: chapter,
+                    isLast: index == chapters.count - 1
+                )
+            }
+        }
+    }
+}
+
+/// Interactive chapter list for BookDetailView with tap handlers
+struct InteractiveChapterListView: View {
+    let chapters: [Chapter]
+    let onChapterTap: (Int) -> Void
+    var showSectionTitle: Bool = true
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSLayout.elementGap) {
+            if showSectionTitle {
+                Text("Chapters")
+                    .font(DSText.prominent)
+                    .foregroundColor(DSColor.primary)
+            }
+            
+            ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                Button(action: {
+                    onChapterTap(index)
+                }) {
+                    StaticChapterRow(
+                        index: index,
+                        chapter: chapter,
+                        isLast: index == chapters.count - 1
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Static chapter row for non-interactive display
+struct StaticChapterRow: View {
+    let index: Int
+    let chapter: Chapter
+    let isLast: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: DSLayout.contentGap) {
+                // Chapter Number Badge
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.secondary.opacity(0.2), Color.secondary.opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 36, height: 36)
+                    
+                    Text("\(index + 1)")
+                        .font(DSText.metadata)
+                        .foregroundColor(.secondary)
+                }
+                
+                VStack(alignment: .leading, spacing: DSLayout.tightGap) {
+                    Text(chapter.title)
+                        .font(DSText.body)
+                        .foregroundColor(DSColor.primary)
+                        .lineLimit(2)
+                    
+                    HStack(spacing: DSLayout.contentGap) {
+                        if let start = chapter.start {
+                            HStack(spacing: DSLayout.tightGap) {
+                                Image(systemName: "clock")
+                                    .font(DSText.metadata)
+                                Text(TimeFormatter.formatTime(start))
+                                    .font(DSText.metadata)
+                                    .monospacedDigit()
+                            }
+                            .foregroundColor(.secondary)
+                        }
+                        
+                        if let start = chapter.start, let end = chapter.end {
+                            HStack(spacing: DSLayout.tightGap) {
+                                Image(systemName: "timer")
+                                    .font(DSText.metadata)
+                                Text(TimeFormatter.formatTime(end - start))
+                                    .font(DSText.metadata)
+                                    .monospacedDigit()
+                            }
+                            .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding(.vertical, DSLayout.tightPadding)
+            
+            if !isLast {
+                Divider()
+            }
+        }
+    }
+}
+
+// MARK: - Chapter Card View (Interactive)
 
 struct ChapterCardView: View {
     let viewModel: ChapterStateViewModel
@@ -373,8 +497,9 @@ struct ChapterCardView: View {
                     .font(DSText.emphasized)
                     .fontWeight(viewModel.isCurrent ? .semibold : .regular)
                     .foregroundColor(viewModel.isCurrent ? .primary : .primary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 
                 HStack(spacing: DSLayout.contentGap) {
                     if let start = viewModel.chapter.start {
@@ -404,10 +529,11 @@ struct ChapterCardView: View {
                     ProgressView(value: chapterProgress)
                         .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
                         .scaleEffect(x: 1, y: 0.6)
+                        .frame(maxWidth: .infinity)
                 }
             }
             
-            Spacer()
+        //    Spacer()
             
             VStack {
                 if viewModel.isCurrent {
@@ -446,14 +572,9 @@ struct ChapterCardView: View {
         .scaleEffect(isPressed ? 0.98 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
         .contentShape(Rectangle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in
-                    isPressed = false
-                    onTap()
-                }
-        )
+        .onTapGesture {
+            onTap()
+        }
     }
     
     private var chapterProgress: Double {

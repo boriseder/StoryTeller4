@@ -48,7 +48,8 @@ final class DefaultBookConverter: BookConverterProtocol, Sendable {
             author: item.media.metadata.author,
             chapters: chapters,
             coverPath: item.media.coverPath,
-            collapsedSeries: item.collapsedSeries
+            collapsedSeries: item.collapsedSeries,
+            description: item.media.metadata.description
         )
     }
 }

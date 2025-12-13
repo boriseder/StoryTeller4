@@ -8,7 +8,7 @@
 
 import SwiftUI
 
-struct EnhancedBookmarkSheet: View {
+struct BookmarkSheet: View {
     let player: AudioPlayer
     @Binding var isPresented: Bool
     

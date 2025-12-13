@@ -252,6 +252,15 @@ final class DependencyContainer {
         )
     }
     
+    func makeBookDetailViewModel(bookId: String) -> BookDetailViewModel {
+        BookDetailViewModel(
+            bookId: bookId,
+            bookRepository: bookRepository,
+            downloadManager: downloadManager,
+            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
+        )
+    }
+    
     // MARK: - Use Case Factories
     func makeFetchBooksUseCase() -> FetchBooksUseCase { FetchBooksUseCase(bookRepository: bookRepository) }
     func makeFetchSeriesUseCase() -> FetchSeriesUseCase { FetchSeriesUseCase(bookRepository: bookRepository) }

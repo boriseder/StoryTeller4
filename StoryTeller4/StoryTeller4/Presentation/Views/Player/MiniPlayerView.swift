@@ -35,6 +35,13 @@ struct MiniPlayerView: View {
                         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: -2)
                 }
                 .clipped()
+                .onTapGesture {
+                    onTap()
+                    
+                    // Haptic feedback
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                }
             }
         }
     }
@@ -79,7 +86,6 @@ struct MiniPlayerView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .contentShape(Rectangle())
         }
     }
     
@@ -145,6 +151,10 @@ struct MiniPlayerView: View {
         return HStack(spacing: buttonSpacing) {
             Button(action: {
                 player.previousChapter()
+                
+                // Haptic feedback
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
             }) {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: iconSize))
@@ -154,6 +164,10 @@ struct MiniPlayerView: View {
             
             Button(action: {
                 player.togglePlayPause()
+                
+                // Haptic feedback
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
             }) {
                 ZStack {
                     Circle()
@@ -168,6 +182,10 @@ struct MiniPlayerView: View {
             
             Button(action: {
                 player.nextChapter()
+                
+                // Haptic feedback
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
             }) {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: iconSize))
@@ -176,5 +194,7 @@ struct MiniPlayerView: View {
             .disabled(player.book == nil ||
                      player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1)
         }
+        // WICHTIG: highPriorityGesture verhindert, dass Button-Taps den onTapGesture des Parents auslösen
+        .highPriorityGesture(TapGesture())
     }
 }

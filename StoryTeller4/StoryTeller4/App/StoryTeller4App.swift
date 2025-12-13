@@ -17,6 +17,10 @@ struct StoryTeller4App: App {
                 .environment(appState)
                 .environment(theme)
                 .environment(dependencies)
+                .environment(appState)
+                .environment(theme)
+                .environment(dependencies.playerStateManager)
+                .environment(dependencies.sleepTimerService) 
                 .preferredColorScheme(theme.colorScheme)
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                     handleMemoryWarning()

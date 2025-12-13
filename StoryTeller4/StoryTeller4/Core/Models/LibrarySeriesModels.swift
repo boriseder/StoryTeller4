@@ -92,12 +92,13 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     let chapters: [Chapter]
     let coverPath: String?
     let collapsedSeries: Series?
+    let description: String?
     
     var isCollapsedSeries: Bool { collapsedSeries != nil }
     var displayTitle: String { collapsedSeries?.name ?? title }
     var seriesBookCount: Int { collapsedSeries?.numBooks ?? 1 }
     
-    // CLEAN CODE: Fix this helper to use the canonical API endpoint
+    // Use the canonical API endpoint
     func coverURL(baseURL: String) -> URL? {
         guard coverPath != nil else { return nil }
         return APIEndpoint.cover(bookId: id).url(baseURL: baseURL)
@@ -112,16 +113,25 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, title, author, chapters, coverPath, collapsedSeries
+        case id, title, author, chapters, coverPath, collapsedSeries, description
     }
     
-    init(id: String, title: String, author: String?, chapters: [Chapter], coverPath: String?, collapsedSeries: Series?) {
+    init(
+        id: String,
+        title: String,
+        author: String?,
+        chapters: [Chapter],
+        coverPath: String?,
+        collapsedSeries: Series?,
+        description: String?
+    ) {
         self.id = id
         self.title = title
         self.author = author
         self.chapters = chapters
         self.coverPath = coverPath
         self.collapsedSeries = collapsedSeries
+        self.description = description
     }
     
     nonisolated init(from decoder: Decoder) throws {
@@ -132,6 +142,7 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
         chapters = try container.decode([Chapter].self, forKey: .chapters)
         coverPath = try container.decodeIfPresent(String.self, forKey: .coverPath)
         collapsedSeries = try container.decodeIfPresent(Series.self, forKey: .collapsedSeries)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
     }
     
     nonisolated func encode(to encoder: Encoder) throws {
@@ -142,6 +153,7 @@ struct Book: Identifiable, Codable, Equatable, Hashable, Sendable {
         try container.encode(chapters, forKey: .chapters)
         try container.encodeIfPresent(coverPath, forKey: .coverPath)
         try container.encodeIfPresent(collapsedSeries, forKey: .collapsedSeries)
+        try container.encodeIfPresent(description, forKey: .description)
     }
     
     static func == (lhs: Book, rhs: Book) -> Bool { lhs.id == rhs.id }

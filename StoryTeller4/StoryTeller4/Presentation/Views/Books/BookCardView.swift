@@ -10,6 +10,9 @@ struct BookCardView: View {
     @Environment(ThemeManager.self) var theme
     @State private var isPressed = false
     
+    @State private var isDetailViewPresented: Bool = false
+    @Environment(DependencyContainer.self) private var dependencyContainer
+    
     init(
         viewModel: BookCardViewModel,
         api: AudiobookshelfClient?,
@@ -130,9 +133,16 @@ struct BookCardView: View {
                       systemImage: viewModel.isFinished ? "checkmark.circle" : "checkmark.circle.fill")
             }
             
-            Button(action: {}) {
+            // 2. Book Details Trigger
+            Button(action: {
+                isDetailViewPresented = true
+            }) {
                 Label("Book Details", systemImage: "info.circle")
             }
+        }
+        // 3. Sheet
+        .sheet(isPresented: $isDetailViewPresented) {
+            BookDetailView(viewModel: dependencyContainer.makeBookDetailViewModel(bookId: viewModel.book.id))
         }
     }
 }
@@ -170,10 +180,3 @@ struct ProgressBarView: View {
     }
 }
 
-// Extension for BookCardViewModel (add these properties)
-extension BookCardViewModel {
-    var isFinished: Bool {
-        // Implement: return currentProgress >= 0.98
-        return currentProgress >= 0.98
-    }
-}
