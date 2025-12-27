@@ -144,57 +144,59 @@ struct MiniPlayerView: View {
     }
     
     private var playbackControls: some View {
-        let buttonSpacing: CGFloat = DeviceType.current == .iPad ? 20 : 16
-        let playButtonSize: CGFloat = DeviceType.current == .iPad ? 48 : 40
-        let iconSize: CGFloat = DeviceType.current == .iPad ? 20 : 16
-        
-        return HStack(spacing: buttonSpacing) {
-            Button(action: {
-                player.previousChapter()
-                
-                // Haptic feedback
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-            }) {
-                Image(systemName: "backward.end.fill")
-                    .font(.system(size: iconSize))
-                    .foregroundColor(.primary)
-            }
-            .disabled(player.currentChapterIndex == 0)
+            let buttonSpacing: CGFloat = DeviceType.current == .iPad ? 20 : 16
+            let playButtonSize: CGFloat = DeviceType.current == .iPad ? 48 : 40
+            let iconSize: CGFloat = DeviceType.current == .iPad ? 20 : 16
             
-            Button(action: {
-                player.togglePlayPause()
-                
-                // Haptic feedback
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-            }) {
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: playButtonSize, height: playButtonSize)
+            return HStack(spacing: buttonSpacing) {
+                Button(action: {
+                    player.previousChapter()
                     
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    // Haptic feedback
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                }) {
+                    Image(systemName: "backward.end.fill")
                         .font(.system(size: iconSize))
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                 }
-            }
-            
-            Button(action: {
-                player.nextChapter()
+                .disabled(player.currentChapterIndex == 0)
                 
-                // Haptic feedback
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-            }) {
-                Image(systemName: "forward.end.fill")
-                    .font(.system(size: iconSize))
-                    .foregroundColor(.primary)
+                Button(action: {
+                    player.togglePlayPause()
+                    
+                    // Haptic feedback
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                }) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: playButtonSize, height: playButtonSize)
+                        
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: iconSize))
+                            .foregroundColor(.white)
+                    }
+                }
+                
+                Button(action: {
+                    player.nextChapter()
+                    
+                    // Haptic feedback
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                }) {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: iconSize))
+                        .foregroundColor(.primary)
+                }
+                .disabled(player.book == nil ||
+                         player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1)
             }
-            .disabled(player.book == nil ||
-                     player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1)
-        }
-        // WICHTIG: highPriorityGesture verhindert, dass Button-Taps den onTapGesture des Parents auslösen
-        .highPriorityGesture(TapGesture())
-    }
-}
+            // FIX: Ersetze highPriorityGesture durch einen leeren onTapGesture.
+            // Dies "schluckt" das Event lokal, ohne mit den internen Button-Gesten in einen Timeout-Konflikt zu geraten.
+            .onTapGesture {
+                // Do nothing - prevents propagation to parent
+            }
+        }}

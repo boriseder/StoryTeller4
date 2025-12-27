@@ -18,15 +18,13 @@ struct SettingsView: View {
         // Create binding proxy for ThemeManager to allow writing to bindings
         @Bindable var theme = theme
         
-        NavigationStack {
-            formContent
-                .navigationTitle("Settings")
-                .navigationBarTitleDisplayMode(.large)
-                .task {
-                    await viewModel.calculateStorageInfo()
-                }
-                .modifier(AlertsModifier(viewModel: viewModel))
-        }
+        formContent
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.large)
+            .task {
+                await viewModel.calculateStorageInfo()
+            }
+            .modifier(AlertsModifier(viewModel: viewModel))
     }
     
     private var formContent: some View {

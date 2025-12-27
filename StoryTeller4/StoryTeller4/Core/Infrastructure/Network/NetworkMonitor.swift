@@ -24,7 +24,8 @@ protocol NetworkMonitoring: Sendable {
 }
 
 actor NetworkMonitor: NetworkMonitoring {
-    private var monitor = NWPathMonitor()
+    // FIX: Make monitor optional to handle lifecycle correctly (creation/invalidation)
+    private var monitor: NWPathMonitor?
     private let queue = DispatchQueue(label: "com.storyteller3.networkmonitor")
     private var statusHandler: (@Sendable (NetworkStatus) -> Void)?
     private var offlineSince: Date?
@@ -34,9 +35,11 @@ actor NetworkMonitor: NetworkMonitoring {
         didSet {
             if currentStatus != oldValue {
                 let status = currentStatus
+                // Notify via callback
                 if let handler = statusHandler {
                     Task { @MainActor in handler(status) }
                 }
+                // Notify via NotificationCenter
                 if status == .online {
                     Task { @MainActor in NotificationCenter.default.post(name: .networkConnectivityChanged, object: nil) }
                 }
@@ -46,22 +49,39 @@ actor NetworkMonitor: NetworkMonitoring {
     
     func startMonitoring() {
         guard !isRunning else { return }
-        isRunning = true
-        monitor.pathUpdateHandler = { [weak self] path in
+        
+        // FIX: Always instantiate a fresh monitor.
+        // Once a NWPathMonitor is cancelled, it cannot be restarted.
+        monitor = NWPathMonitor()
+        
+        monitor?.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
             let newStatus: NetworkStatus = path.status == .satisfied ? .online : .offline
             Task { await self.updateStatus(newStatus) }
         }
-        monitor.start(queue: queue)
+        
+        monitor?.start(queue: queue)
+        isRunning = true
     }
     
     private func updateStatus(_ newStatus: NetworkStatus) {
         self.currentStatus = newStatus
     }
     
-    func stopMonitoring() { monitor.cancel(); isRunning = false }
-    func forceRefresh() { offlineSince = Date() }
-    func onStatusChange(_ handler: @escaping @Sendable (NetworkStatus) -> Void) { statusHandler = handler }
+    func stopMonitoring() {
+        // FIX: Cancel and release the monitor instance to prevent NECP errors on restart
+        monitor?.cancel()
+        monitor = nil
+        isRunning = false
+    }
+    
+    func forceRefresh() {
+        offlineSince = Date()
+    }
+    
+    func onStatusChange(_ handler: @escaping @Sendable (NetworkStatus) -> Void) {
+        statusHandler = handler
+    }
 }
 
 public extension Notification.Name {

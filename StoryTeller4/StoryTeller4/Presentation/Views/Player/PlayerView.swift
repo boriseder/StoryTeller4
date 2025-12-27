@@ -26,47 +26,36 @@ struct PlayerView: View {
     var body: some View {
         @Bindable var vm = viewModel
         
-        NavigationStack {
-            GeometryReader { geometry in
-                if DeviceType.current == .iPad && geometry.size.width > geometry.size.height {
-                    iPadLandscapeLayout(geometry: geometry)
-                } else {
-                    standardLayout(geometry: geometry)
-                }
+        GeometryReader { geometry in
+            if DeviceType.current == .iPad && geometry.size.width > geometry.size.height {
+                iPadLandscapeLayout(geometry: geometry)
+            } else {
+                standardLayout(geometry: geometry)
             }
-            .background(DSColor.background)
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-
-            /*
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    moreButton
-                }
-            }
- */
-            
-            .sheet(isPresented: $vm.showingChaptersList) {
-                ChaptersListView(player: viewModel.player)
-                    .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $vm.showingSleepTimer) {
-                SleepTimerView()
-                    .environment(sleepTimer)
-                    .presentationDetents([.medium])
-                    .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showingPlaybackSettings) {
-                PlaybackSettingsView(player: viewModel.player)
-                    .presentationDetents([.medium])
-                    .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showingAddBookmark) {
-                BookmarkSheet(
-                    player: viewModel.player,
-                    isPresented: $showingAddBookmark
-                )
-            }
+        }
+        .background(DSColor.background)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $vm.showingChaptersList) {
+            ChaptersListView(player: viewModel.player)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $vm.showingSleepTimer) {
+            SleepTimerView()
+                .environment(sleepTimer)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingPlaybackSettings) {
+            PlaybackSettingsView(player: viewModel.player)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingAddBookmark) {
+            BookmarkSheet(
+                player: viewModel.player,
+                isPresented: $showingAddBookmark
+            )
         }
         .onAppear {
             viewModel.sliderValue = showBookProgress
@@ -79,6 +68,12 @@ struct PlayerView: View {
                 : viewModel.player.relativeCurrentTime
 
             viewModel.updateSliderFromPlayer(displayTime)
+        }
+        .onChange(of: showBookProgress) { _, newValue in
+            // FIX: Update slider value when switching between book/chapter progress
+            viewModel.sliderValue = newValue
+                ? viewModel.player.absoluteCurrentTime
+                : viewModel.player.relativeCurrentTime
         }
     }
     
@@ -128,16 +123,31 @@ struct PlayerView: View {
     // MARK: - Standard Layout
     
     private func standardLayout(geometry: GeometryProxy) -> some View {
-        VStack(spacing: DSLayout.contentGap) {
-            coverArtSection.frame(height: DSLayout.fullCover)
-            controlsSection.frame(maxHeight: .infinity).padding(.horizontal, DeviceType.current == .iPad ? 40 : DSLayout.screenPadding)
+        // FIX: Proper layout with safe area consideration
+        VStack(spacing: 0) {
+            // Cover art takes available space
+            coverArtSection
+                .frame(maxHeight: geometry.size.height * 0.45)
+            
+            // Controls section
+            ScrollView {
+                VStack(spacing: DeviceType.current == .iPad ? 24 : 16) {
+                    trackInfoSection
+                    progressSection
+                    mainControlsSection
+                    secondaryControlsSection
+                }
+                .padding(.horizontal, DeviceType.current == .iPad ? 40 : DSLayout.screenPadding)
+                .padding(.bottom, 20) // FIX: Add bottom padding for safe area
+            }
+            .frame(maxHeight: geometry.size.height * 0.55)
         }
     }
     
     // MARK: - Cover Art Section
     
     private var coverArtSection: some View {
-        VStack(spacing: DSLayout.contentGap) {
+        VStack {
             Spacer()
             coverArtView
             Spacer()
@@ -151,7 +161,7 @@ struct PlayerView: View {
                 if let book = viewModel.player.book {
                     BookCoverView.square(
                         book: book,
-                        size: DSLayout.fullCover,
+                        size: DeviceType.current == .iPad ? DSLayout.fullCover : min(DSLayout.fullCover, 320),
                         api: viewModel.api,
                         downloadManager: viewModel.player.downloadManagerReference
                     )
@@ -167,20 +177,8 @@ struct PlayerView: View {
             // UX: Jump Overlay
             if let direction = activeJump {
                 PlayerJumpOverlayView(direction: direction)
-                    .id(Date()) // Force refresh
+                    .id(Date())
             }
-        }
-    }
-    
-    // MARK: - Controls Section
-    
-    private var controlsSection: some View {
-        VStack(spacing: DeviceType.current == .iPad ? 32 : 24) {
-            trackInfoSection
-            progressSection
-            mainControlsSection
-            secondaryControlsSection
-            Spacer()
         }
     }
     
@@ -188,31 +186,34 @@ struct PlayerView: View {
     
     private var trackInfoSection: some View {
         VStack(spacing: 8) {
-            Text(viewModel.player.book?.title ?? "No book selected")
-                .font(DeviceType.current == .iPad ? .title : .title2)
-                .fontWeight(.semibold)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-            
-            Text(viewModel.player.book?.author ?? "")
-                .font(DeviceType.current == .iPad ? .body : .subheadline)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-            
             if let chapter = viewModel.player.currentChapter {
                 Button(action: {
                     viewModel.showingChaptersList = true
                     
-                    // Haptic feedback
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                 }) {
                     HStack(spacing: 4) {
-                        Image(systemName: "list.bullet").font(.caption)
-                        Text(chapter.title).font(.caption).truncationMode(.middle).lineLimit(1)
+                        Text(chapter.title)
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.primary)
+                            .truncationMode(.middle)
+                            .lineLimit(1)
                     }
-                    .foregroundColor(.accentColor)
                 }
+                
+                Text(viewModel.player.book?.title ?? "No book selected")
+                    .font(DeviceType.current == .iPad ? .body : .subheadline)
+                    .fontWeight(.semibold)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                
+                Text(viewModel.player.book?.author ?? "")
+                    .font(DeviceType.current == .iPad ? .body : .subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
             }
         }
     }
@@ -221,7 +222,6 @@ struct PlayerView: View {
     
     private var progressSection: some View {
         VStack(spacing: 8) {
-            
             // UX: Explicit Label for Context
             HStack {
                 Text(showBookProgress ? "Total Book Progress" : "Current Chapter Progress")
@@ -240,15 +240,29 @@ struct PlayerView: View {
                 ),
                 in: 0...max(progressDuration, 1)
             ) { editing in
-                viewModel.onSliderEditingChanged(editing)
-                
-                // Haptic feedback on release
-                if !editing {
+                if editing {
+                    viewModel.isDraggingSlider = true
+                } else {
+                    viewModel.isDraggingSlider = false
+                    
+                    // FIX: Use correct seek method based on context
+                    if showBookProgress {
+                        // Seeking in absolute time (book progress)
+                        viewModel.player.seek(to: viewModel.sliderValue)
+                    } else {
+                        // Seeking in relative time (chapter progress)
+                        // Add chapter start to get absolute time
+                        if let chapter = viewModel.player.currentChapter {
+                            let chapterStart = chapter.start ?? 0
+                            let absoluteTime = chapterStart + viewModel.sliderValue
+                            viewModel.player.seek(to: absoluteTime)
+                        }
+                    }
+                    
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                 }
             }
-            // UX: Color differentiation
             .tint(showBookProgress ? .purple : .accentColor)
             
             HStack {
@@ -263,7 +277,6 @@ struct PlayerView: View {
                     withAnimation {
                         showBookProgress.toggle()
                     }
-                    // Haptic feedback
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                 }) {
@@ -296,9 +309,10 @@ struct PlayerView: View {
     // MARK: - Main Controls Section
     
     private var mainControlsSection: some View {
-        let controlSpacing: CGFloat = DeviceType.current == .iPad ? 48 : 32
+        // FIX: Adjusted spacing for iPhone
+        let controlSpacing: CGFloat = DeviceType.current == .iPad ? 48 : 24
         let buttonSize: CGFloat = DeviceType.current == .iPad ? 72 : 64
-        let iconSize: Font = DeviceType.current == .iPad ? .largeTitle : .title
+        let iconSize: Font = DeviceType.current == .iPad ? .largeTitle : .title2
         
         return HStack(spacing: controlSpacing) {
             Button(action: {
@@ -314,7 +328,7 @@ struct PlayerView: View {
             
             Button(action: {
                 viewModel.player.seek15SecondsBack()
-                triggerJump(PlayerJumpOverlayView.JumpDirection.backward) // UX: Trigger overlay
+                triggerJump(PlayerJumpOverlayView.JumpDirection.backward)
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
             }) {
@@ -341,7 +355,7 @@ struct PlayerView: View {
             
             Button(action: {
                 viewModel.player.seek15SecondsForward()
-                triggerJump(PlayerJumpOverlayView.JumpDirection.forward) // UX: Trigger overlay
+                triggerJump(PlayerJumpOverlayView.JumpDirection.forward)
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
             }) {
@@ -361,6 +375,7 @@ struct PlayerView: View {
             }
             .disabled(isLastChapter)
         }
+        .padding(.vertical, 8) // FIX: Add vertical padding
     }
     
     private var isFirstChapter: Bool { viewModel.player.currentChapterIndex == 0 }
@@ -372,22 +387,17 @@ struct PlayerView: View {
     // MARK: - Secondary Controls Section
     
     private var secondaryControlsSection: some View {
-        let controlSpacing: CGFloat = DeviceType.current == .iPad ? 56 : 40
+        // FIX: Adjusted spacing for iPhone
+        let controlSpacing: CGFloat = DeviceType.current == .iPad ? 56 : 32
         
         return HStack(spacing: controlSpacing) {
-            // Speed - Prominent
             speedButton
-            
-            // Chapters - Secondary (contextual)
             chaptersButton
-            
-            // Bookmarks - Secondary (contextual)
             bookmarkButton
-            
-            // More Menu - Tertiary (rare actions)
             moreMenuButton
         }
         .foregroundColor(.primary)
+        .padding(.vertical, 8) // FIX: Add vertical padding
     }
     
     // MARK: - Secondary Control Buttons
@@ -419,7 +429,7 @@ struct PlayerView: View {
         }) {
             VStack(spacing: 4) {
                 Image(systemName: "list.bullet")
-                    .font(DeviceType.current == .iPad ? .title2 : .title3)
+                    .font(DeviceType.current == .iPad ? .title2 : .body)
                 Text("Chapters")
                     .font(DeviceType.current == .iPad ? .caption : .caption2)
                     .foregroundColor(.secondary)
@@ -437,7 +447,7 @@ struct PlayerView: View {
         }) {
             VStack(spacing: 4) {
                 Image(systemName: "bookmark.fill")
-                    .font(DeviceType.current == .iPad ? .title2 : .title3)
+                    .font(DeviceType.current == .iPad ? .title2 : .body)
                 Text("Bookmark")
                     .font(DeviceType.current == .iPad ? .caption : .caption2)
                     .foregroundColor(.secondary)
@@ -448,7 +458,6 @@ struct PlayerView: View {
     
     private var moreMenuButton: some View {
         Menu {
-            
             Button(action: {}) {
                 Label("Audio Output", systemImage: "speaker.fill")
             }
@@ -460,31 +469,16 @@ struct PlayerView: View {
             }) {
                 Label("Sleep Timer", systemImage: "moon")
             }
-            
-            
-            
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: "ellipsis")
-                    .font(DeviceType.current == .iPad ? .title2 : .title3)
+                    .font(DeviceType.current == .iPad ? .title2 : .body)
                 Text("More")
                     .font(DeviceType.current == .iPad ? .caption : .caption2)
                     .foregroundColor(.secondary)
             }
         }
     }
-    
-/*
-    private var moreButton: some View {
-        Menu {
-            Button(action: { viewModel.player.pause() }) {
-                Label("Stop Playback", systemImage: "stop")
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-    }
-*/
     
     // MARK: - Progress Helpers
     

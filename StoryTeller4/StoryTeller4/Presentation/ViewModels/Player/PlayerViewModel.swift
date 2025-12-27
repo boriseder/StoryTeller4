@@ -6,6 +6,7 @@ import Combine
 @Observable
 class PlayerViewModel {
     // MARK: - UI State
+    
     var controlState = PlayerControlState()
     
     // MARK: - Dependencies

@@ -58,9 +58,12 @@ struct ContentView: View {
                             Task { setupApp() }
                         } else if appState.isFirstLaunch {
                             appState.showingWelcome = true
-                        } else {
+                        }
+                        /*
+                         else {
                             appState.showingSettings = true
                         }
+                         */
                     }
                 
             case .networkError(_):
@@ -105,7 +108,7 @@ struct ContentView: View {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("Done") {
                                 appState.showingSettings = false
-                                Task { setupApp() }
+                                //Task { setupApp() }
                             }
                         }
                     }
@@ -391,7 +394,6 @@ struct ContentView: View {
                     await initAppLibrary(client: client)
                     await dependencies.initializeSharedRepositories(isOnline: true)
                     appState.loadingState = .ready
-                    configureAudioSession()
                     setupCacheManager()
                     
                 case .networkError(let issueType):
@@ -460,17 +462,7 @@ struct ContentView: View {
             }
         }
     }
-    
-    private func configureAudioSession() {
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .spokenAudio)
-            try audioSession.setActive(true)
-        } catch {
-            AppLogger.general.error("[App] ❌ Failed to configure audio session: \(error)")
-        }
-    }
-    
+        
     private func testConnection(client: AudiobookshelfClient) async -> ConnectionTestResult {
         guard appState.isDeviceOnline else {
             return .networkError(.noInternet)

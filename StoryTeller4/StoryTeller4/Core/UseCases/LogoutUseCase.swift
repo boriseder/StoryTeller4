@@ -24,6 +24,7 @@ final class LogoutUseCase: LogoutUseCaseProtocol, Sendable {
             UserDefaults.standard.removeObject(forKey: "baseURL")
             UserDefaults.standard.removeObject(forKey: "apiKey")
             UserDefaults.standard.removeObject(forKey: "selected_library_id")
+            UserDefaults.standard.removeObject(forKey: "has_launched_before")
             
             NotificationCenter.default.post(name: .init("ServerSettingsChanged"), object: nil)
         }
