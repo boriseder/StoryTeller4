@@ -3,34 +3,32 @@ import SwiftUI
 struct SeriesDetailView: View {
     @State private var viewModel: SeriesDetailViewModel
     @Environment(\.dismiss) private var dismiss
-    
-    // FIX: Use @Environment(Type.self) for @Observable objects
+
     @Environment(AppStateManager.self) private var appState
     @Environment(DependencyContainer.self) private var dependencies
 
-    init(series: Series, onBookSelected: @escaping () -> Void) {
+    // FIXED: Accept an injected container instead of hardcoding .shared
+    init(series: Series, container: DependencyContainer, onBookSelected: @escaping () -> Void) {
         _viewModel = State(initialValue: SeriesDetailViewModel(
             series: series,
-            container: .shared,
+            container: container,
             onBookSelected: onBookSelected
         ))
     }
-    
-    init(seriesBook: Book, onBookSelected: @escaping () -> Void) {
+
+    init(seriesBook: Book, container: DependencyContainer, onBookSelected: @escaping () -> Void) {
         _viewModel = State(initialValue: SeriesDetailViewModel(
             seriesBook: seriesBook,
-            container: .shared,
+            container: container,
             onBookSelected: onBookSelected
         ))
     }
-    
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: DSLayout.contentGap) {
                 seriesHeaderView
-                
                 Divider()
-                
                 booksGridView
             }
             .navigationTitle("")
@@ -41,7 +39,7 @@ struct SeriesDetailView: View {
             }
         }
     }
-    
+
     private var seriesHeaderView: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
@@ -49,15 +47,15 @@ struct SeriesDetailView: View {
                     .font(.title3)
                     .fontWeight(.semibold)
                     .lineLimit(2)
-                
+
                 if !viewModel.seriesBooks.isEmpty {
                     HStack(spacing: DSLayout.elementGap) {
                         Text("\(viewModel.seriesBooks.count) books")
-                        
+
                         if viewModel.downloadedCount > 0 {
                             Text("• \(viewModel.downloadedCount) downloaded")
                         }
-                        
+
                         if let duration = viewModel.seriesTotalDuration {
                             Text("• \(duration)")
                         }
@@ -67,9 +65,9 @@ struct SeriesDetailView: View {
                 }
             }
             .layoutPriority(1)
-            
+
             Spacer()
-            
+
             Button {
                 dismiss()
             } label: {
@@ -82,7 +80,7 @@ struct SeriesDetailView: View {
         .padding(.horizontal, DSLayout.screenPadding)
         .padding(.top, DSLayout.comfortPadding)
     }
-    
+
     private var booksGridView: some View {
         ScrollView {
             LazyVGrid(columns: DSGridColumns.two, spacing: 0) {

@@ -2,16 +2,16 @@ import SwiftUI
 
 struct AuthorsView: View {
     let viewModel: AuthorsViewModel
-    
-    // FIX: Use @Environment(Type.self)
+
     @Environment(ThemeManager.self) var theme
     @Environment(AppStateManager.self) var appState
-    
+    // FIXED: Read container from environment instead of .shared
+    @Environment(DependencyContainer.self) var dependencies
+
     @State private var selectedAuthor: Author?
 
     var body: some View {
         ZStack {
-
             if theme.backgroundStyle == .dynamic {
                 DynamicBackground()
                     .transition(.opacity)
@@ -47,10 +47,13 @@ struct AuthorsView: View {
         .task {
             await viewModel.loadAuthors()
         }
+        // FIXED: Use factory method on injected container, not .shared
         .sheet(item: $selectedAuthor) { author in
             AuthorDetailView(
-                author: author,
-                onBookSelected: { }
+                viewModel: dependencies.makeAuthorDetailViewModel(
+                    author: author,
+                    onBookSelected: { }
+                )
             )
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
@@ -63,22 +66,18 @@ struct AuthorsView: View {
 struct AuthorRow: View {
     let author: Author
     let api: AudiobookshelfClient?
- 
-    // FIX: Use @Environment(Type.self)
+
     @Environment(ThemeManager.self) var theme
     @Environment(AppStateManager.self) var appState
 
     var body: some View {
         HStack(spacing: DSLayout.contentGap) {
-            
-            // Author Image
             AuthorImageView(
                 author: author,
                 api: api,
                 size: DSLayout.smallAvatar
             )
-            
-            // Author Info
+
             VStack(alignment: .leading, spacing: DSLayout.elementGap) {
                 Text(author.name)
                     .font(DSText.detail)

@@ -1,13 +1,9 @@
 import SwiftUI
 
 struct AuthorDetailView: View {
-    let author: Author
-    let onBookSelected: () -> Void
-
     @State private var viewModel: AuthorDetailViewModel
     @Environment(\.dismiss) private var dismiss
-    
-    // Use @Environment(Type.self) for @Observable objects
+
     @Environment(AppStateManager.self) private var appState
     @Environment(ThemeManager.self) var theme
     @Environment(DependencyContainer.self) private var dependencies
@@ -15,23 +11,9 @@ struct AuthorDetailView: View {
     @AppStorage("open_fullscreen_player") private var playerMode = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
 
-    init(author: Author, onBookSelected: @escaping () -> Void) {
-        self.author = author
-        self.onBookSelected = onBookSelected
-
-        let container = DependencyContainer.shared
-        
-        _viewModel = State(initialValue: AuthorDetailViewModel(
-            bookRepository: container.bookRepository,
-            libraryRepository: container.libraryRepository,
-            api: container.apiClient!,
-            downloadManager: container.downloadManager,
-            player: container.player,
-            appState: container.appState,
-            playBookUseCase: PlayBookUseCase(),
-            author: author,
-            onBookSelected: onBookSelected
-        ))
+    // FIXED: Accept a pre-built ViewModel instead of constructing it with .shared
+    init(viewModel: AuthorDetailViewModel) {
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {
@@ -47,13 +29,12 @@ struct AuthorDetailView: View {
             }
         }
     }
-    
+
     private func contentView(geometry: GeometryProxy) -> some View {
         ZStack {
-                        
             VStack(alignment: .leading, spacing: DSLayout.contentGap) {
                 authorHeaderView
-                
+
                 ScrollView {
                     LazyVGrid(columns: DSGridColumns.two, spacing: DSLayout.contentGap) {
                         ForEach(viewModel.authorBooks, id: \.id) { book in
@@ -86,30 +67,29 @@ struct AuthorDetailView: View {
             }
         }
     }
-    
+
     private var authorHeaderView: some View {
-        
         HStack(alignment: .center) {
             AuthorImageView(
-                author: author,
-                api: DependencyContainer.shared.apiClient,
+                author: viewModel.author,
+                api: viewModel.api,
                 size: DSLayout.smallAvatar
             )
-            
+
             VStack(alignment: .leading, spacing: DSLayout.tightGap) {
                 Text(viewModel.author.name)
                     .font(DSText.itemTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                
+
                 if !viewModel.authorBooks.isEmpty {
                     HStack(spacing: DSLayout.elementGap) {
-                        Text("\(author.numBooks ?? 0) \((author.numBooks ?? 0) == 1 ? "Book" : "Books")")
+                        Text("\(viewModel.author.numBooks ?? 0) \((viewModel.author.numBooks ?? 0) == 1 ? "Book" : "Books")")
 
                         if viewModel.downloadedCount > 0 {
                             Text(" • \(viewModel.downloadedCount) downloaded")
                         }
-                        
+
                         if viewModel.totalDuration > 0 {
                             Text(" • \(TimeFormatter.formatTimeCompact(viewModel.totalDuration)) total")
                         }
@@ -119,9 +99,9 @@ struct AuthorDetailView: View {
             }
             .layoutPriority(1)
             .padding(.leading, DSLayout.elementGap)
-            
+
             Spacer()
-            
+
             Button {
                 dismiss()
             } label: {

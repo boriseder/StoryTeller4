@@ -364,3 +364,48 @@ final class DependencyContainer {
         _apiClient = nil
     }
 }
+
+// MARK: - Add these factory methods to DependencyContainer.swift
+// (inside the existing DependencyContainer class, alongside makeHomeViewModel etc.)
+
+extension DependencyContainer {
+
+    func makeAuthorDetailViewModel(
+        author: Author,
+        onBookSelected: @escaping () -> Void
+    ) -> AuthorDetailViewModel {
+        AuthorDetailViewModel(
+            bookRepository: bookRepository,
+            libraryRepository: libraryRepository,
+            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""),
+            downloadManager: downloadManager,
+            player: player,
+            appState: appState,
+            playBookUseCase: PlayBookUseCase(),
+            author: author,
+            onBookSelected: onBookSelected
+        )
+    }
+
+    func makeSeriesDetailViewModel(
+        series: Series,
+        onBookSelected: @escaping () -> Void
+    ) -> SeriesDetailViewModel {
+        SeriesDetailViewModel(
+            series: series,
+            container: self,
+            onBookSelected: onBookSelected
+        )
+    }
+
+    func makeSeriesDetailViewModel(
+        seriesBook: Book,
+        onBookSelected: @escaping () -> Void
+    ) -> SeriesDetailViewModel {
+        SeriesDetailViewModel(
+            seriesBook: seriesBook,
+            container: self,
+            onBookSelected: onBookSelected
+        )
+    }
+}

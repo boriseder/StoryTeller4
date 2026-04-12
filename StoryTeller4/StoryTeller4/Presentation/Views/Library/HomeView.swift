@@ -1,22 +1,21 @@
 import SwiftUI
 
 struct HomeView: View {
-    // FIX: Standard property for @Observable model (passed from ContentView)
     let viewModel: HomeViewModel
-    
-    // FIX: Use @Environment(Type.self)
+ 
     @Environment(AppStateManager.self) var appState
     @Environment(ThemeManager.self) var theme
+    // FIXED: Read container from environment
     @Environment(DependencyContainer.self) var dependencies
-
+ 
     @State private var selectedSeries: Series?
     @State private var selectedAuthor: Author?
     @State private var showBookmarks = false
     @State private var showEmptyState = false
-    
+ 
     @AppStorage("open_fullscreen_player") private var playerMode = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
-
+ 
     var body: some View {
         ZStack {
             if theme.backgroundStyle == .dynamic {
@@ -24,10 +23,9 @@ struct HomeView: View {
                     .transition(.opacity)
                     .zIndex(0)
             }
-
+ 
             contentView
                 .transition(.opacity)
-
         }
         .navigationTitle("Personalized")
         .navigationBarTitleDisplayMode(.large)
@@ -36,15 +34,12 @@ struct HomeView: View {
         .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    showBookmarks.toggle()
-                }){
+                Button(action: { showBookmarks.toggle() }) {
                     Image(systemName: "bookmark.fill")
                         .font(.system(size: 16))
                         .foregroundColor(.primary)
                 }
             }
-
             ToolbarItem(placement: .navigationBarTrailing) {
                 SettingsButton()
             }
@@ -55,20 +50,28 @@ struct HomeView: View {
         .task {
             await viewModel.loadPersonalizedSectionsIfNeeded()
         }
+        // FIXED: Pass injected container into SeriesDetailView
         .sheet(item: $selectedSeries) { series in
-            SeriesDetailView(series: series, onBookSelected: {})
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.black.opacity(0.65))
+            SeriesDetailView(
+                series: series,
+                container: dependencies,
+                onBookSelected: {}
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(.black.opacity(0.65))
         }
+        // FIXED: Use factory method on injected container for AuthorDetailView
         .sheet(item: $selectedAuthor) { author in
             AuthorDetailView(
-                author: author,
-                onBookSelected: { }
+                viewModel: dependencies.makeAuthorDetailViewModel(
+                    author: author,
+                    onBookSelected: { }
+                )
             )
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.black.opacity(0.65))
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(.black.opacity(0.65))
         }
         .sheet(isPresented: $showBookmarks) {
             BookmarksView()
@@ -77,18 +80,16 @@ struct HomeView: View {
                 .presentationBackground(.black.opacity(0.65))
         }
     }
-        
+ 
     private var contentView: some View {
         ZStack {
-
             ScrollView {
                 LazyVStack(spacing: DSLayout.contentGap) {
-                    
                     OfflineBanner()
-                    
+ 
                     homeHeaderView
                         .padding(.vertical, DSLayout.elementGap)
-                    
+ 
                     ForEach(Array(viewModel.personalizedSections.enumerated()), id: \.element.id) { index, section in
                         PersonalizedSectionView(
                             section: section,
@@ -111,7 +112,6 @@ struct HomeView: View {
                                 selectedAuthor = author
                             }
                         )
-                        // Note: Subviews inherit Environment(Type.self) automatically
                     }
                 }
                 Spacer()
@@ -128,7 +128,7 @@ struct HomeView: View {
             }
         }
     }
-    
+ 
     private var homeHeaderView: some View {
         HStack(spacing: DSLayout.elementGap) {
             HStack(spacing: DSLayout.tightGap) {
@@ -136,39 +136,37 @@ struct HomeView: View {
                     .font(.system(size: 20))
                     .foregroundColor(.blue)
                     .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
-
+ 
                 VStack(alignment: .center, spacing: 0) {
                     Text("Books in library")
                         .font(DSText.footnote)
                         .foregroundColor(.secondary)
-                    
                     Text(String(viewModel.totalItemsCount))
                         .font(DSText.prominent)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
             }
-
+ 
             Divider()
-
+ 
             HStack(spacing: DSLayout.tightGap) {
                 Image(systemName: "arrow.down.circle")
                     .font(.system(size: DSLayout.icon))
                     .foregroundColor(.green)
                     .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
-
+ 
                 VStack(alignment: .center, spacing: 0) {
                     Text("Downloads")
                         .font(DSText.footnote)
                         .foregroundColor(.secondary)
-                    
                     Text(String(viewModel.downloadedCount))
                         .font(DSText.prominent)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
             }
-
+ 
             Divider()
-
+ 
             Button {
                 Task {
                     if !appState.isDeviceOnline {

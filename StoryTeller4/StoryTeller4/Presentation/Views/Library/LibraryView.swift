@@ -3,9 +3,10 @@ import Combine
 
 struct LibraryView: View {
     var viewModel: LibraryViewModel
-    
+
     @Environment(AppStateManager.self) var appState
     @Environment(ThemeManager.self) var theme
+    // FIXED: Read container from environment
     @Environment(DependencyContainer.self) var dependencies
 
     @State private var selectedSeries: Book?
@@ -18,10 +19,10 @@ struct LibraryView: View {
 
     @AppStorage("open_fullscreen_player") private var playerMode: Bool = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay: Bool = false
-    
+
     var body: some View {
         @Bindable var vm = viewModel
-        
+
         ZStack {
             if theme.backgroundStyle == .dynamic {
                 DynamicBackground()
@@ -47,15 +48,12 @@ struct LibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    showBookmarks.toggle()
-                }){
+                Button(action: { showBookmarks.toggle() }) {
                     Image(systemName: "bookmark.fill")
                         .font(.system(size: 16))
                         .foregroundColor(.primary)
                 }
             }
-
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: DSLayout.contentGap) {
                     if !viewModel.books.isEmpty {
@@ -69,9 +67,11 @@ struct LibraryView: View {
             await viewModel.loadBooksIfNeeded()
             updateBookCardViewModels()
         }
-        .sheet(item: $selectedSeries) { series in
+        // FIXED: Pass injected container into SeriesDetailView instead of .shared
+        .sheet(item: $selectedSeries) { book in
             SeriesDetailView(
-                seriesBook: series,
+                seriesBook: book,
+                container: dependencies,
                 onBookSelected: viewModel.onBookSelected
             )
             .environment(appState)
@@ -87,16 +87,13 @@ struct LibraryView: View {
         .onChange(of: viewModel.filteredAndSortedBooks.count) {
             updateBookCardViewModels()
         }
-        // CLEAN CODE: Removed manual .onReceive listeners.
-        // The UI now updates automatically via Observation.
     }
 
     private var contentView: some View {
         ZStack {
-            
             ScrollView {
                 OfflineBanner()
-                
+
                 if viewModel.filterState.showDownloadedOnly {
                     FilterStatusBannerView(
                         count: viewModel.filteredAndSortedBooks.count,
@@ -104,20 +101,20 @@ struct LibraryView: View {
                         onDismiss: { viewModel.toggleDownloadFilter() }
                     )
                 }
-                
+
                 if viewModel.filterState.showSeriesGrouped {
                     SeriesStatusBannerView(
                         books: viewModel.filteredAndSortedBooks,
                         onDismiss: { viewModel.toggleSeriesMode() }
                     )
                 }
-                
+
                 LazyVGrid(
                     columns: DSGridColumns.two,
                     alignment: .center,
                     spacing: DSLayout.contentGap
                 ) {
-                ForEach(bookCardVMs) { bookVM in
+                    ForEach(bookCardVMs) { bookVM in
                         BookCardView(
                             viewModel: bookVM,
                             api: viewModel.api,
@@ -135,7 +132,7 @@ struct LibraryView: View {
             .padding(.horizontal, DSLayout.screenPadding)
         }
     }
-    
+
     private func updateBookCardViewModels() {
         let books = viewModel.filteredAndSortedBooks
         Task { @MainActor in
@@ -145,10 +142,7 @@ struct LibraryView: View {
             self.bookCardVMs = newVMs
         }
     }
-    
-    // updateCurrentBookOnly and updateDownloadingBooksOnly removed as they are no longer needed
-    // The individual BookCardViews observe the player/downloadManager directly.
-    
+
     private func handleBookTap(_ book: Book) {
         if book.isCollapsedSeries {
             selectedSeries = book
@@ -158,21 +152,21 @@ struct LibraryView: View {
                     book,
                     appState: appState,
                     autoPlay: autoPlay
-                    )
+                )
             }
         }
     }
-    
+
     private func startDownload(_ book: Book) {
         Task {
             await viewModel.downloadManager.downloadBook(book, api: viewModel.api)
         }
     }
-    
+
     private func deleteDownload(_ book: Book) {
         viewModel.downloadManager.deleteBook(book.id)
     }
-    
+
     private var filterAndSortMenu: some View {
         Menu {
             Section("SORTING") {
@@ -188,7 +182,7 @@ struct LibraryView: View {
                         }
                     }
                 }
-                
+
                 Button {
                     viewModel.filterState.sortAscending.toggle()
                     viewModel.filterState.saveToDefaults()
@@ -199,9 +193,9 @@ struct LibraryView: View {
                     )
                 }
             }
-            
+
             Divider()
-            
+
             Section("FILTER") {
                 Button {
                     viewModel.toggleDownloadFilter()
@@ -213,9 +207,9 @@ struct LibraryView: View {
                     }
                 }
             }
-            
+
             Divider()
-            
+
             Section("VIEW") {
                 Button {
                     viewModel.toggleSeriesMode()
@@ -223,12 +217,12 @@ struct LibraryView: View {
                     Label(
                         "Group series",
                         systemImage: viewModel.filterState.showSeriesGrouped
-                        ? "square.stack.3d.up.fill"
-                        : "square.stack.3d.up"
+                            ? "square.stack.3d.up.fill"
+                            : "square.stack.3d.up"
                     )
                 }
             }
-            
+
             if viewModel.filterState.hasActiveFilters {
                 Divider()
                 Button(role: .destructive) {
@@ -246,13 +240,13 @@ struct LibraryView: View {
                           ? Color.accentColor.opacity(0.15)
                           : Color.clear)
                     .frame(width: 32, height: 32)
-                
+
                 Image(systemName: viewModel.filterState.hasActiveFilters
                       ? "line.3.horizontal.decrease.circle.fill"
                       : "line.3.horizontal.decrease.circle")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundColor(viewModel.filterState.hasActiveFilters ? .accentColor : .primary)
-                
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(viewModel.filterState.hasActiveFilters ? .accentColor : .primary)
+
                 if viewModel.filterState.hasActiveFilters {
                     Circle()
                         .fill(
@@ -276,20 +270,20 @@ struct FilterStatusBannerView: View {
     let count: Int
     let totalDownloaded: Int
     let onDismiss: () -> Void
-    
+
     var body: some View {
         HStack(spacing: DSLayout.tightGap) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: DSLayout.icon))
                 .foregroundColor(.orange)
                 .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
-            
+
             Text("Show \(count) of \(totalDownloaded) downloaded books")
                 .font(DSText.footnote)
                 .foregroundColor(.secondary)
 
             Spacer()
-            
+
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: DSLayout.smallIcon))
@@ -308,21 +302,21 @@ struct FilterStatusBannerView: View {
 struct SeriesStatusBannerView: View {
     let books: [Book]
     let onDismiss: () -> Void
-    
+
     private var seriesCount: Int {
         books.lazy.filter { $0.isCollapsedSeries }.count
     }
-    
+
     private var booksCount: Int {
         books.count - seriesCount
     }
-    
+
     var body: some View {
         HStack(spacing: DSLayout.contentGap) {
             Image(systemName: "rectangle.stack.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.blue)
-            
+
             if seriesCount > 0 && booksCount > 0 {
                 Text("Show \(seriesCount) Series • \(booksCount) Books")
                     .font(.subheadline)
@@ -336,9 +330,9 @@ struct SeriesStatusBannerView: View {
                     .font(.subheadline)
                     .foregroundColor(.primary)
             }
-            
+
             Spacer()
-            
+
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 14))
