@@ -303,7 +303,8 @@ struct PersonalizedSectionView: View {
                         author: author,
                         onTap: {
                             onAuthorSelected(author)
-                        }
+                        },
+                        api: api
                     )
                 }
             }
@@ -361,7 +362,8 @@ struct SeriesCardView: View {
 struct AuthorCardView: View {
     let author: Author
     let onTap: () -> Void
-    
+    let api: AudiobookshelfClient?   // passed from PersonalizedSectionView
+
     // FIX: Use @Environment(Type.self)
     @Environment(ThemeManager.self) var theme
     
@@ -371,7 +373,7 @@ struct AuthorCardView: View {
                 
                 AuthorImageView(
                     author: author,
-                    api: DependencyContainer.shared.apiClient,
+                    api: api,
                     size: 100
                 )
 

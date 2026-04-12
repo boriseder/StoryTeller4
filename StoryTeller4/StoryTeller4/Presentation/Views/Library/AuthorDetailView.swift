@@ -7,7 +7,7 @@ struct AuthorDetailView: View {
     @State private var viewModel: AuthorDetailViewModel
     @Environment(\.dismiss) private var dismiss
     
-    // FIX: Use @Environment(Type.self) for @Observable objects
+    // Use @Environment(Type.self) for @Observable objects
     @Environment(AppStateManager.self) private var appState
     @Environment(ThemeManager.self) var theme
     @Environment(DependencyContainer.self) private var dependencies

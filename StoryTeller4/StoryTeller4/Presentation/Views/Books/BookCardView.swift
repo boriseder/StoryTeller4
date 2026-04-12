@@ -7,12 +7,13 @@ struct BookCardView: View {
     let onDownload: () -> Void
     let onDelete: () -> Void
     
+    @Environment(DependencyContainer.self) private var container
     @Environment(ThemeManager.self) var theme
+
     @State private var isPressed = false
-    
     @State private var isDetailViewPresented: Bool = false
-    @Environment(DependencyContainer.self) private var dependencyContainer
-    
+
+
     init(
         viewModel: BookCardViewModel,
         api: AudiobookshelfClient?,
@@ -38,7 +39,7 @@ struct BookCardView: View {
                             book: viewModel.book,
                             size: DSLayout.cardCoverNoPadding,
                             api: api,
-                            downloadManager: DependencyContainer.shared.downloadManager
+                            downloadManager: container.downloadManager
                         )
                         .clipShape(RoundedRectangle(cornerRadius: DSCorners.element))
                         .overlay(
@@ -142,7 +143,7 @@ struct BookCardView: View {
         }
         // 3. Sheet
         .sheet(isPresented: $isDetailViewPresented) {
-            BookDetailView(viewModel: dependencyContainer.makeBookDetailViewModel(bookId: viewModel.book.id))
+            BookDetailView(viewModel: container.makeBookDetailViewModel(bookId: viewModel.book.id))
         }
     }
 }

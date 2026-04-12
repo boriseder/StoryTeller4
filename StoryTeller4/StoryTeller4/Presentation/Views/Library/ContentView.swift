@@ -28,17 +28,17 @@ struct ContentView: View {
     // Accessed directly from shared for init (before environment is available)
     let api = DependencyContainer.shared.apiClient
     
+    // Fix: keep the init but access shared only once, clearly
+    // The container IS .shared here — that's acceptable in the root view.
+    // But name it clearly and don't alias it as a local "container".
     init() {
-        let container = DependencyContainer.shared
-        
-        // ViewModels initialized via State(initialValue:)
-        _homeViewModel = State(initialValue: container.makeHomeViewModel())
-        _libraryViewModel = State(initialValue: container.makeLibraryViewModel())
-        _seriesViewModel = State(initialValue: container.makeSeriesViewModel())
-        _authorsViewModel = State(initialValue: container.makeAuthorsViewModel())
-        _downloadsViewModel = State(initialValue: container.makeDownloadsViewModel())
+        _homeViewModel    = State(initialValue: DependencyContainer.shared.makeHomeViewModel())
+        _libraryViewModel = State(initialValue: DependencyContainer.shared.makeLibraryViewModel())
+        _seriesViewModel  = State(initialValue: DependencyContainer.shared.makeSeriesViewModel())
+        _authorsViewModel = State(initialValue: DependencyContainer.shared.makeAuthorsViewModel())
+        _downloadsViewModel = State(initialValue: DependencyContainer.shared.makeDownloadsViewModel())
     }
-    
+
     var body: some View {
         @Bindable var appState = appState
         
@@ -118,7 +118,7 @@ struct ContentView: View {
             WelcomeView {
                 appState.showingWelcome = false
                 appState.isFirstLaunch = false
-                appState.showingSettings = true
+                appState.showingSettings = false //no need to display settingsView
             }
             .ignoresSafeArea()
         }

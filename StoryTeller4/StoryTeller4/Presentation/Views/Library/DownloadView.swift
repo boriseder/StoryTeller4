@@ -57,11 +57,14 @@ struct DownloadsView: View {
         } message: {
             Text(viewModel.errorMessage ?? "Unknown error")
         }
+        .task {
+            await viewModel.loadData()
+        }
+        .onChange(of: viewModel.downloadManager.downloadedBooks.count) {
+            viewModel.refreshData()
+        }
     }
-    
-    // ... [contentView, storageWarningBanner, etc. same as provided in previous turns] ...
-    // Note: Re-stating contentView for completeness as context might require it
-    
+        
     private func contentView() -> some View {
         ZStack {
             

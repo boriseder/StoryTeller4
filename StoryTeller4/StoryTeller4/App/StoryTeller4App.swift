@@ -5,7 +5,7 @@ import SwiftUI
 struct StoryTeller4App: App {
     @Environment(\.scenePhase) private var scenePhase
     
-    // MIGRATION: Use @State instead of @StateObject for @Observable types
+    // Use @State instead of @StateObject for @Observable types
     @State private var appState = AppStateManager.shared
     @State private var theme = ThemeManager()
     @State private var dependencies = DependencyContainer.shared
@@ -13,12 +13,10 @@ struct StoryTeller4App: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                // MIGRATION: Use modern .environment injection
+                // Use modern .environment injection
                 .environment(appState)
                 .environment(theme)
                 .environment(dependencies)
-                .environment(appState)
-                .environment(theme)
                 .environment(dependencies.playerStateManager)
                 .environment(dependencies.sleepTimerService) 
                 .preferredColorScheme(theme.colorScheme)

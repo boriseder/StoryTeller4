@@ -44,11 +44,15 @@ class DownloadsViewModel {
         self.storageMonitor = storageMonitor
         self.onBookSelected = onBookSelected
         self.playBookUseCase = PlayBookUseCase()
-        
-        // Initial load
-        refreshData()
     }
     
+    // Call this from .task in the view instead of init
+    func loadData() async {
+        // Trigger a preload in case it hasn't happened yet
+        _ = await downloadManager.preloadDownloadedBooksCount()
+        refreshData()
+    }
+  
     func refreshData() {
         downloadedBooks = downloadManager.downloadedBooks
         updateStorageInfo()
