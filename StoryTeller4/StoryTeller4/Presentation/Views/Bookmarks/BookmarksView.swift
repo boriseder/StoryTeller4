@@ -3,10 +3,8 @@ import SwiftUI
 struct BookmarksView: View {
     @State private var viewModel = BookmarkViewModel()
     @Environment(\.dismiss) private var dismiss
-    
-    // FIX: Use @Environment(Type.self) for @Observable
     @Environment(ThemeManager.self) var theme
-    
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -14,10 +12,10 @@ struct BookmarksView: View {
                     Color.accent.ignoresSafeArea()
                     DynamicBackground()
                 }
-                
+
                 VStack(spacing: 0) {
                     searchBar
-                    
+
                     if viewModel.allBookmarks.isEmpty {
                         emptyState
                     } else {
@@ -31,12 +29,23 @@ struct BookmarksView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
                 }
-                
+
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: viewModel.toggleGrouping) {
                         Image(systemName: viewModel.groupByBook ? "list.bullet" : "square.grid.2x2")
                     }
                 }
+            }
+            // FIX: Drive initial load and stay reactive to repository changes.
+            // Since BookmarkRepository is now @Observable, changes to its `bookmarks`
+            // property propagate through the observation graph. We still need an explicit
+            // refresh on appear to populate `allBookmarks` (which is an enriched/sorted
+            // transformation, not a direct mirror of the repository).
+            .task {
+                viewModel.refreshData()
+            }
+            .refreshable {
+                await viewModel.refresh()
             }
             .sheet(item: $viewModel.editingBookmark) { enriched in
                 NavigationStack {
@@ -59,14 +68,14 @@ struct BookmarksView: View {
             }
         }
     }
-    
+
     private var searchBar: some View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(.secondary)
             TextField("Search bookmarks...", text: $viewModel.searchText)
                 .textFieldStyle(.plain)
-            
+
             if !viewModel.searchText.isEmpty {
                 Button(action: { viewModel.searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
@@ -79,14 +88,15 @@ struct BookmarksView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .padding()
     }
-    
+
     private var bookmarksList: some View {
         List {
             if viewModel.groupByBook {
                 ForEach(viewModel.groupedBookmarks) { group in
                     Section(header: Text(group.title)) {
                         ForEach(group.bookmarks) { enriched in
-                            BookmarkRow(                                enriched: enriched,
+                            BookmarkRow(
+                                enriched: enriched,
                                 onTap: { viewModel.jumpToBookmark(enriched, dismiss: dismiss) },
                                 onEdit: { viewModel.startEditingBookmark(enriched) },
                                 onDelete: { viewModel.deleteBookmark(enriched) }
@@ -107,7 +117,7 @@ struct BookmarksView: View {
         }
         .scrollContentBackground(.hidden)
     }
-    
+
     private var emptyState: some View {
         VStack(spacing: 20) {
             Image(systemName: "bookmark.slash")

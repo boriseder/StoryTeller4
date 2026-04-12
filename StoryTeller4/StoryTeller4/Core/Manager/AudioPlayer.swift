@@ -8,7 +8,7 @@ import Observation
 @MainActor
 @Observable
 class AudioPlayer: NSObject {
-    
+
     // MARK: - Properties
     var book: Book?
     var currentChapterIndex: Int = 0
@@ -18,59 +18,61 @@ class AudioPlayer: NSObject {
     var isLoading = false
     var errorMessage: String?
     var playbackRate: Float = 1.0
-    
+
     // MARK: - Sync & Heartbeat Properties
     private var lastSyncTime: Double = 0
-    private let syncInterval: Double = 30 // Sync progress to server/storage every 30 seconds
-    
+    private let syncInterval: Double = 30
+
     // MARK: - Dependencies
     private let avPlayerService: AVPlayerService
     private let sessionService: PlaybackSessionService
     private var audioFileService: AudioFileService
     private let mediaRemoteService: MediaRemoteService
     private let preloader: AudioTrackPreloader
-    
+
     // MARK: - Configuration
+    // FIX: Track whether configure() has been called before allowing playback.
+    // The player is valid to create but inert until configured.
+    private var isConfigured = false
     private var baseURL: String = ""
     private var authToken: String = ""
     private var isOfflineMode: Bool = false
     private var targetSeekTime: Double?
     private var downloadManager: DownloadManager?
-    
+
     var downloadManagerReference: DownloadManager? {
         return downloadManager
     }
-    
+
     // MARK: - State
-    // Replaced manual KVO with token storage
     private var keyValueObservations: [NSKeyValueObservation] = []
     private var timeObserver: Any?
-    
-    // Wrapper for notifications handles cleanup safely
     private let notificationWrapper = NotificationObserverWrapper()
-    
+
     // MARK: - Computed Properties
     var currentChapter: Chapter? {
         guard let book = book, currentChapterIndex < book.chapters.count else { return nil }
         return book.chapters[currentChapterIndex]
     }
-    
+
     // MARK: - Initialization
+    // FIX: init() no longer activates the audio session.
+    // The session is activated lazily in configure() when real credentials exist.
     override init() {
         self.avPlayerService = DefaultAVPlayerService()
         self.sessionService = DefaultPlaybackSessionService()
         self.audioFileService = DefaultAudioFileService(downloadManager: nil)
         self.mediaRemoteService = DefaultMediaRemoteService()
         self.preloader = AudioTrackPreloader()
-        
+
         super.init()
-        setupAudioSession()
+
         setupPersistence()
         setupRemoteCommands()
         setupInterruptionHandling()
         setupRouteChangeHandling()
     }
-    
+
     init(
         avPlayerService: AVPlayerService,
         sessionService: PlaybackSessionService,
@@ -83,15 +85,15 @@ class AudioPlayer: NSObject {
         self.audioFileService = audioFileService
         self.mediaRemoteService = mediaRemoteService
         self.preloader = preloader
-        
+
         super.init()
-        setupAudioSession()
+
         setupPersistence()
         setupRemoteCommands()
         setupInterruptionHandling()
         setupRouteChangeHandling()
     }
-    
+
     // MARK: - Computed Properties
     var absoluteCurrentTime: Double {
         guard let chapter = currentChapter else { return currentTime }
@@ -115,31 +117,37 @@ class AudioPlayer: NSObject {
     }
 
     // MARK: - Configuration
+    // FIX: configure() is now the single point of activation.
+    // It sets up the AVAudioSession (only once credentials are known) and marks the player ready.
     func configure(baseURL: String, authToken: String, downloadManager: DownloadManager? = nil) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         self.authToken = authToken
         self.downloadManager = downloadManager
-        
+
         if let downloadManager = downloadManager {
             self.audioFileService = DefaultAudioFileService(downloadManager: downloadManager)
         }
+
+        // Only activate the audio session when we actually have a real configuration.
+        // This avoids activating the session at app launch before the user is logged in.
+        if !isConfigured {
+            setupAudioSession()
+            isConfigured = true
+        }
     }
-    
+
     // MARK: - Audio Session Setup
-    /// Configure audio session for background playback
-    /// This should only be called once during initialization
     private func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            // IMPORTANT: Use .playback category to enable background audio
             try session.setCategory(.playback, mode: .spokenAudio, options: [])
             try session.setActive(true)
-            print("✅ [AudioPlayer] AVAudioSession configured and active.")
+            AppLogger.audio.info("[AudioPlayer] AVAudioSession configured and active.")
         } catch {
-            print("❌ [AudioPlayer] Failed to configure audio session: \(error.localizedDescription)")
+            AppLogger.audio.error("[AudioPlayer] Failed to configure audio session: \(error.localizedDescription)")
         }
     }
-    
+
     // MARK: - Book Loading
     func load(
         book: Book,
@@ -147,17 +155,23 @@ class AudioPlayer: NSObject {
         restoreState: Bool = true,
         autoPlay: Bool = false
     ) async {
+        // FIX: Guard against loading before configure() is called.
+        // This prevents a silent failure where the player loads but can never stream.
+        guard isConfigured else {
+            AppLogger.audio.error("[AudioPlayer] load() called before configure(). Call configure(baseURL:authToken:) first.")
+            errorMessage = "Player not configured. Please connect to a server first."
+            return
+        }
+
         self.book = book
         self.isOfflineMode = isOffline
-        
-        // Set isPlaying flag early if autoPlay is requested
-        // This will be used in handleStatusChange to start playback when ready
+
         if autoPlay {
             self.isPlaying = true
         }
-        
+
         await preloader.clearAll()
-        
+
         if restoreState {
             if let state = await PlaybackRepository.shared.loadStateForBook(book.id, book: book) {
                 self.currentChapterIndex = min(state.chapterIndex, book.chapters.count - 1)
@@ -172,8 +186,8 @@ class AudioPlayer: NSObject {
             self.currentChapterIndex = 0
             self.targetSeekTime = nil
         }
-        
-        loadChapter(shouldResumePlayback: false) // Don't pass autoPlay here anymore
+
+        loadChapter(shouldResumePlayback: false)
         updateNowPlaying()
     }
 
@@ -183,25 +197,22 @@ class AudioPlayer: NSObject {
             errorMessage = "No chapter available"
             return
         }
-        
-        // Set playing state if resume is requested
-        // handleStatusChange will start playback when item is ready
+
         if shouldResumePlayback {
             isPlaying = true
         }
-        
+
         Task {
-            // Check if chapter is already preloaded
             if let preloadedItem = await preloader.getPreloadedItem(for: currentChapterIndex) {
                 let chapterDuration = (chapter.end ?? 0) - (chapter.start ?? 0)
                 setupPlayer(with: preloadedItem, duration: chapterDuration, shouldResumePlayback: false)
                 startPreloadingNextChapter()
                 return
             }
-            
+
             isLoading = true
             errorMessage = nil
-            
+
             if isOfflineMode {
                 loadOfflineChapter(chapter, shouldResumePlayback: false)
             } else {
@@ -209,7 +220,7 @@ class AudioPlayer: NSObject {
             }
         }
     }
-    
+
     private func loadOnlineChapter(_ chapter: Chapter, shouldResumePlayback: Bool) {
         Task {
             do {
@@ -218,7 +229,7 @@ class AudioPlayer: NSObject {
                     baseURL: baseURL,
                     authToken: authToken
                 )
-                
+
                 await MainActor.run {
                     self.isLoading = false
                     setupOnlinePlayer(with: session, shouldResumePlayback: false)
@@ -231,97 +242,96 @@ class AudioPlayer: NSObject {
             }
         }
     }
- 
+
     internal func loadChapter(at index: Int, seekTo time: Double?, shouldResume: Bool = true) {
         guard let book = book, index >= 0 && index < book.chapters.count else { return }
         currentChapterIndex = index
         targetSeekTime = time
         loadChapter(shouldResumePlayback: shouldResume)
     }
-    
+
     private func setupOnlinePlayer(with session: PlaybackSessionResponse, shouldResumePlayback: Bool) {
         guard currentChapterIndex < session.audioTracks.count else {
             errorMessage = "Invalid chapter index"
             return
         }
-        
+
         let audioTrack = session.audioTracks[currentChapterIndex]
-        
+
         guard let audioURL = audioFileService.getStreamingAudioURL(baseURL: baseURL, audioTrack: audioTrack) else {
             errorMessage = "Invalid audio URL"
             return
         }
-        
+
         let asset = audioFileService.createAuthenticatedAsset(url: audioURL, authToken: authToken)
         let playerItem = AVPlayerItem(asset: asset)
-        
+
         self.duration = audioTrack.duration
         setupPlayer(with: playerItem, duration: audioTrack.duration, shouldResumePlayback: false)
     }
-    
+
     private func loadOfflineChapter(_ chapter: Chapter, shouldResumePlayback: Bool) {
         guard let book = book else {
             isLoading = false
             errorMessage = "No book loaded"
             return
         }
-        
+
         Task { @MainActor in
             guard let localURL = audioFileService.getLocalAudioURL(bookId: book.id, chapterIndex: currentChapterIndex) else {
                 self.errorMessage = "Offline audio file not found"
                 self.isLoading = false
                 return
             }
-            
+
             let playerItem = AVPlayerItem(url: localURL)
             let chapterDuration = (chapter.end ?? 0) - (chapter.start ?? 0)
-            
+
             self.isLoading = false
             setupPlayer(with: playerItem, duration: chapterDuration, shouldResumePlayback: false)
         }
     }
-    
+
     private func setupPlayer(with item: AVPlayerItem, duration: Double, shouldResumePlayback: Bool) {
         cleanupPlayer()
-        
-        // Set duration immediately to avoid UI glitches
+
         self.duration = duration
-        
+
         avPlayerService.loadAudio(item: item)
         setupPlayerItemObservers(item)
         addTimeObserver()
-        
+
         updateNowPlaying()
         startPreloadingNextChapter()
-        
-        // Do NOT seek or play here directly. The item is not ready yet.
-        // Both seeking and playback are handled in `handleStatusChange` when status is .readyToPlay.
     }
-    
+
     // MARK: - Playback Controls
     func play() {
-        // Do NOT call setupAudioSession() here!
-        // Audio session is already configured in init()
+        // FIX: Guard playback if player has never been configured.
+        guard isConfigured else {
+            AppLogger.audio.error("[AudioPlayer] play() called before configure(). Ignoring.")
+            return
+        }
         avPlayerService.play()
         avPlayerService.playbackRate = playbackRate
         isPlaying = true
         updateNowPlaying()
     }
-    
+
     func pause() {
         avPlayerService.pause()
         isPlaying = false
         updateNowPlaying()
         saveCurrentPlaybackState()
     }
-    
+
     func setCurrentChapter(index: Int) {
         guard let book = book, index >= 0 && index < book.chapters.count else { return }
         currentChapterIndex = index
         targetSeekTime = 0
         loadChapter(shouldResumePlayback: isPlaying)
     }
-    
+
     func nextChapter() {
         guard let book = book, currentChapterIndex + 1 < book.chapters.count else {
             pause()
@@ -329,64 +339,59 @@ class AudioPlayer: NSObject {
         }
         setCurrentChapter(index: currentChapterIndex + 1)
     }
-    
+
     func previousChapter() {
         guard currentChapterIndex > 0 else { return }
         setCurrentChapter(index: currentChapterIndex - 1)
     }
-    
+
     func seek15SecondsBack() {
         let newTime = max(0, currentTime - 15)
         seekRelative(to: newTime)
     }
-    
+
     func seek15SecondsForward() {
         let newTime = min(duration, currentTime + 15)
         seekRelative(to: newTime)
     }
-    
-    /// Seek to a relative time position within the current chapter
+
     private func seekRelative(to seconds: Double) {
         guard let chapter = currentChapter else { return }
         let chapterDuration = (chapter.end ?? 0) - (chapter.start ?? 0)
-        
-        // Boundary check
+
         guard seconds >= 0 && seconds <= chapterDuration else { return }
-        
+
         avPlayerService.seek(to: seconds)
-        
+
         if isPlaying {
             avPlayerService.playbackRate = playbackRate
         }
-        
-        // Reset sync time and save state
+
         lastSyncTime = seconds
         updateNowPlaying()
         saveCurrentPlaybackState()
     }
-    
-    /// Seek to an absolute time position (used by UI slider and bookmarks)
+
     func seek(to seconds: Double) {
         guard let chapter = currentChapter else { return }
         let chapterStart = chapter.start ?? 0
         let chapterDuration = (chapter.end ?? 0) - chapterStart
-        
+
         let relativeSeekTime = seconds - chapterStart
         guard relativeSeekTime >= 0 && relativeSeekTime <= chapterDuration else { return }
-        
+
         avPlayerService.seek(to: relativeSeekTime)
-        
+
         if isPlaying {
             avPlayerService.playbackRate = playbackRate
         }
-        
-        // Reset sync time to prevent immediate double sync, but save current state
+
         lastSyncTime = relativeSeekTime
-        
+
         updateNowPlaying()
         saveCurrentPlaybackState()
     }
-    
+
     func setPlaybackRate(_ rate: Double) {
         let floatRate = Float(rate)
         self.playbackRate = floatRate
@@ -395,11 +400,11 @@ class AudioPlayer: NSObject {
         }
         updateNowPlaying()
     }
-    
+
     func togglePlayPause() {
         if isPlaying { pause() } else { play() }
     }
-    
+
     // MARK: - Remote Commands
     private func setupRemoteCommands() {
         mediaRemoteService.setupRemoteCommands(
@@ -413,19 +418,19 @@ class AudioPlayer: NSObject {
             onChangeRate: { [weak self] rate in self?.setPlaybackRate(rate) }
         )
     }
-    
+
     // MARK: - Now Playing Info
     private func updateNowPlaying() {
         guard let book = book, let chapter = currentChapter else {
             mediaRemoteService.clearNowPlaying()
             return
         }
-        
+
         var artwork: UIImage? = nil
         if let localCoverURL = audioFileService.getLocalCoverURL(bookId: book.id) {
             artwork = UIImage(contentsOfFile: localCoverURL.path)
         }
-        
+
         let info = NowPlayingInfo(
             title: chapter.title,
             artist: book.author ?? "Unknown Author",
@@ -439,7 +444,7 @@ class AudioPlayer: NSObject {
         )
         mediaRemoteService.updateNowPlaying(info: info)
     }
-    
+
     // MARK: - Interruption Handling
     private func setupInterruptionHandling() {
         let observer = NotificationCenter.default.addObserver(
@@ -450,32 +455,29 @@ class AudioPlayer: NSObject {
             guard let userInfo = notification.userInfo,
                   let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-            
+
             let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt
-            
+
             Task { @MainActor [weak self] in
                 self?.handleInterruption(type: type, optionsValue: optionsValue)
             }
         }
         notificationWrapper.add(observer)
     }
-    
+
     private func handleInterruption(type: AVAudioSession.InterruptionType, optionsValue: UInt?) {
         switch type {
         case .began:
-            // Interruption began (e.g., phone call) - pause playback
             pause()
-            
+
         case .ended:
-            // Interruption ended - reactivate audio session
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
-                print("✅ [AudioPlayer] Audio session reactivated after interruption")
+                AppLogger.audio.info("[AudioPlayer] Audio session reactivated after interruption.")
             } catch {
-                print("❌ [AudioPlayer] Failed to reactivate audio session: \(error)")
+                AppLogger.audio.error("[AudioPlayer] Failed to reactivate audio session: \(error)")
             }
-            
-            // Resume playback if system suggests it
+
             guard let optionsValue = optionsValue else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
             if options.contains(.shouldResume) {
@@ -484,12 +486,12 @@ class AudioPlayer: NSObject {
                     self.play()
                 }
             }
-            
+
         @unknown default:
             break
         }
     }
-    
+
     // MARK: - Route Change Handling
     private func setupRouteChangeHandling() {
         let observer = NotificationCenter.default.addObserver(
@@ -500,9 +502,8 @@ class AudioPlayer: NSObject {
             guard let userInfo = notification.userInfo,
                   let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
-            
+
             Task { @MainActor in
-                // Pause when headphones are unplugged
                 if reason == .oldDeviceUnavailable {
                     self?.pause()
                 }
@@ -510,7 +511,7 @@ class AudioPlayer: NSObject {
         }
         notificationWrapper.add(observer)
     }
-    
+
     // MARK: - Preloading
     private func startPreloadingNextChapter() {
         guard let book = book else { return }
@@ -525,57 +526,44 @@ class AudioPlayer: NSObject {
             ) { _ in }
         }
     }
-    
+
     // MARK: - Time Observer
     private func addTimeObserver() {
         let interval = CMTime(seconds: 1, preferredTimescale: 1)
-        
+
         timeObserver = avPlayerService.addTimeObserver(interval: interval, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let current = self.avPlayerService.currentTime
                 self.currentTime = current
-                
-                // Heartbeat Sync Logic
-                // We check if the difference between current time and last sync time exceeds the interval.
-                // This ensures we sync regularly even if the user doesn't pause.
+
                 if abs(current - self.lastSyncTime) >= self.syncInterval {
-                    AppLogger.general.debug("[AudioPlayer] Heartbeat Sync triggered at \(current)s")
+                    AppLogger.audio.debug("[AudioPlayer] Heartbeat sync triggered at \(current)s")
                     self.saveCurrentPlaybackState()
                     self.lastSyncTime = current
                 }
-                
-                // Note: removed frequent updateNowPlaying() calls.
-                // iOS interpolates playback progress on the lock screen automatically.
-                // We only need to update when state changes (play/pause/chapter) or manually seeking.
-                
-                // Preload next chapter when approaching end
+
                 if self.duration - self.currentTime <= 30 {
                     self.startPreloadingNextChapter()
                 }
             }
         }
     }
-    
+
     // MARK: - Player Item Observers
     private func setupPlayerItemObservers(_ playerItem: AVPlayerItem) {
         keyValueObservations.removeAll()
-        
-        // 1. Status Observer
+
         let statusObs = playerItem.observe(\.status) { [weak self] item, _ in
             Task { @MainActor in
                 self?.handleStatusChange(item)
             }
         }
         keyValueObservations.append(statusObs)
-        
-        // 2. LoadedTimeRanges Observer (for buffer UI updates if needed)
-        let timeObs = playerItem.observe(\.loadedTimeRanges) { _, _ in
-            // No-op or update buffer UI if needed
-        }
+
+        let timeObs = playerItem.observe(\.loadedTimeRanges) { _, _ in }
         keyValueObservations.append(timeObs)
-        
-        // 3. Play to end observer
+
         let finishObs = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
@@ -587,7 +575,7 @@ class AudioPlayer: NSObject {
         }
         notificationWrapper.add(finishObs)
     }
-    
+
     private func playerItemDidFinishPlaying() {
         guard let book = book, currentChapterIndex + 1 < book.chapters.count else {
             isPlaying = false
@@ -596,7 +584,7 @@ class AudioPlayer: NSObject {
         }
         nextChapter()
     }
-    
+
     private func handleStatusChange(_ item: AVPlayerItem) {
         if item.status == .failed {
             self.errorMessage = item.error?.localizedDescription ?? "Unknown error"
@@ -604,25 +592,22 @@ class AudioPlayer: NSObject {
         } else if item.status == .readyToPlay {
             self.errorMessage = nil
             isLoading = false
-            
-            // Perform initial seek here when item is actually ready.
-            // This prevents the player from resetting to 0:00 because the item wasn't ready during setup.
+
             if let seekTime = targetSeekTime {
-                print("🎯 [AudioPlayer] Seeking to \(seekTime)s after item ready")
+                AppLogger.audio.debug("[AudioPlayer] Seeking to \(seekTime)s after item ready.")
                 avPlayerService.seek(to: seekTime)
                 targetSeekTime = nil
                 updateNowPlaying()
             }
-            
-            // Start playback if requested (after potential seek)
+
             if isPlaying {
-                print("▶️ [AudioPlayer] Starting playback after item ready")
+                AppLogger.audio.debug("[AudioPlayer] Starting playback after item ready.")
                 avPlayerService.play()
                 avPlayerService.playbackRate = playbackRate
             }
         }
     }
-    
+
     // MARK: - Persistence
     private func setupPersistence() {
         let autoSaveObserver = NotificationCenter.default.addObserver(
@@ -635,7 +620,7 @@ class AudioPlayer: NSObject {
             }
         }
         notificationWrapper.add(autoSaveObserver)
-        
+
         let backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
@@ -647,12 +632,12 @@ class AudioPlayer: NSObject {
         }
         notificationWrapper.add(backgroundObserver)
     }
-    
+
     private func saveCurrentPlaybackState() {
         guard let book = book, let chapter = currentChapter else { return }
         let chapterStart = chapter.start ?? 0
         let absoluteTime = chapterStart + currentTime
-        
+
         let state = PlaybackState(
             libraryItemId: book.id,
             currentTime: absoluteTime,
@@ -670,18 +655,18 @@ class AudioPlayer: NSObject {
         let nearEnd = duration > 0 && (currentTime / duration) > 0.95
         return isLastChapter && nearEnd
     }
-    
+
     // MARK: - Cleanup
     private func cleanupPlayer() {
         if let observer = timeObserver {
             avPlayerService.removeTimeObserver(observer)
             timeObserver = nil
         }
-        
+
         keyValueObservations.removeAll()
         avPlayerService.cleanup()
     }
-    
+
     deinit {
         // NotificationObserverWrapper deinit automatically removes observers
     }
