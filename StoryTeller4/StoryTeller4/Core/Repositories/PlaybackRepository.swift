@@ -144,32 +144,53 @@ class PlaybackRepository: ObservableObject {
         }
     }
     
-    func syncPlaybackProgress() async {
-        guard isOnline, let api = api else { return }
-        isSyncing = true
-        if let allProgress = try? await api.progress.fetchAllMediaProgress() {
-            for prog in allProgress {
-                let newState = PlaybackState(from: prog)
-                if let local = states[prog.libraryItemId] {
-                    if prog.lastUpdate > local.lastUpdate { saveStateLocal(newState) }
-                } else { saveStateLocal(newState) }
-            }
-        }
-        isSyncing = false
-    }
-}
-
-extension PlaybackRepository {
+    // MARK: - Sync from Server
+    //
+    // Fetches all media progress from the server and merges it into local state.
+    // Server wins when its lastUpdate timestamp is newer than the local record.
+    // Local wins when it has pending unsynced changes (needsSync == true), since
+    // those represent playback that happened offline and hasn't been pushed yet.
     func syncFromServer() async {
-            guard let api = self.api else { return }
-            
-            do {
-                // Actual implementation: Fetch progress
-                _ = try await api.progress.fetchAllMediaProgress()
-                AppLogger.general.debug("[PlaybackRepository] Synced from server")
-            } catch {
-                AppLogger.general.error("[PlaybackRepository] Sync failed: \(error)")
+        guard let api = self.api, isOnline else {
+            AppLogger.general.debug("[PlaybackRepository] Skipping sync — offline or not configured")
+            return
+        }
+
+        isSyncing = true
+        defer { isSyncing = false }
+
+        do {
+            let allProgress = try await api.progress.fetchAllMediaProgress()
+
+            for serverProgress in allProgress {
+                let itemId = serverProgress.libraryItemId
+
+                if let localState = states[itemId] {
+                    // Local has pending offline changes — push those to server instead
+                    if localState.needsSync {
+                        AppLogger.general.debug("[PlaybackRepository] Item \(itemId) has pending local changes, pushing to server")
+                        await syncToServer(localState)
+                        continue
+                    }
+
+                    // Server is newer — update local
+                    if serverProgress.lastUpdate > localState.lastUpdate {
+                        let newState = PlaybackState(from: serverProgress)
+                        saveStateLocal(newState)
+                        AppLogger.general.debug("[PlaybackRepository] Updated \(itemId) from server (server newer)")
+                    }
+                    // Local is newer — nothing to do, local will sync on next saveState call
+                } else {
+                    // No local record at all — take the server version
+                    let newState = PlaybackState(from: serverProgress)
+                    saveStateLocal(newState)
+                    AppLogger.general.debug("[PlaybackRepository] Saved new state for \(itemId) from server")
+                }
             }
+
+            AppLogger.general.debug("[PlaybackRepository] Sync complete — \(allProgress.count) items processed")
+        } catch {
+            AppLogger.general.error("[PlaybackRepository] Sync failed: \(error)")
+        }
     }
 }
-
