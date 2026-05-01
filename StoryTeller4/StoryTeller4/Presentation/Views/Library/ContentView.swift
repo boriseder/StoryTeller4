@@ -6,51 +6,42 @@ struct ContentView: View {
     @Environment(AppStateManager.self) private var appState
     @Environment(ThemeManager.self) private var theme
     @Environment(DependencyContainer.self) private var dependencies
-    
-    // MARK: - Hoisted ViewModels (All migrated to @Observable)
-    @State private var homeViewModel: HomeViewModel
-    @State private var libraryViewModel: LibraryViewModel
-    @State private var seriesViewModel: SeriesViewModel
-    @State private var authorsViewModel: AuthorsViewModel
-    @State private var downloadsViewModel: DownloadsViewModel
-    
+
+    // MARK: - ViewModels
+    //
+    // These are nil until setupApp() has finished configuring the API client.
+    // Creating them before that point is pointless — they all receive a placeholder
+    // AudiobookshelfClient(baseURL: "", authToken: "") and immediately get thrown
+    // away and recreated anyway. By deferring creation we guarantee they are always
+    // built with real credentials.
+    @State private var homeViewModel: HomeViewModel?
+    @State private var libraryViewModel: LibraryViewModel?
+    @State private var seriesViewModel: SeriesViewModel?
+    @State private var authorsViewModel: AuthorsViewModel?
+    @State private var downloadsViewModel: DownloadsViewModel?
+
     @State private var selectedTab: TabIndex = .home
     @State private var bookCount = 0
     @State private var cancellables = Set<AnyCancellable>()
-    
-    // Dependencies accessed via Environment
+
     private var player: AudioPlayer { dependencies.player }
     private var downloadManager: DownloadManager { dependencies.downloadManager }
     private var playerStateManager: PlayerStateManager { dependencies.playerStateManager }
-    
+
     @State var columnVisibility: NavigationSplitViewVisibility = .automatic
-    
-    // Accessed directly from shared for init (before environment is available)
-    let api = DependencyContainer.shared.apiClient
-    
-    // Fix: keep the init but access shared only once, clearly
-    // The container IS .shared here — that's acceptable in the root view.
-    // But name it clearly and don't alias it as a local "container".
-    init() {
-        _homeViewModel    = State(initialValue: DependencyContainer.shared.makeHomeViewModel())
-        _libraryViewModel = State(initialValue: DependencyContainer.shared.makeLibraryViewModel())
-        _seriesViewModel  = State(initialValue: DependencyContainer.shared.makeSeriesViewModel())
-        _authorsViewModel = State(initialValue: DependencyContainer.shared.makeAuthorsViewModel())
-        _downloadsViewModel = State(initialValue: DependencyContainer.shared.makeDownloadsViewModel())
-    }
 
     var body: some View {
         @Bindable var appState = appState
-        
+
         ZStack {
             Color.accent.ignoresSafeArea()
-            
+
             switch appState.loadingState {
-                
+
             case .initial, .loadingCredentials, .credentialsFoundValidating, .loadingData:
                 LoadingView(message: "Loading data...")
                     .padding(.bottom, 80)
-                
+
             case .noCredentialsSaved, .authenticationError:
                 Color.clear
                     .onAppear {
@@ -59,13 +50,8 @@ struct ContentView: View {
                         } else if appState.isFirstLaunch {
                             appState.showingWelcome = true
                         }
-                        /*
-                         else {
-                            appState.showingSettings = true
-                        }
-                         */
                     }
-                
+
             case .networkError(_):
                 if bookCount > 0 {
                     mainContent
@@ -76,7 +62,7 @@ struct ContentView: View {
                 } else {
                     NoDownloadsView()
                 }
-                
+
             case .ready:
                 mainContent
                     .ignoresSafeArea()
@@ -90,9 +76,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("ServerSettingsChanged"))) { _ in
             appState.clearConnectionIssue()
-            Task {
-                setupApp()
-            }
+            Task { setupApp() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("ShowSettings"))) { _ in
             appState.showingSettings = true
@@ -108,7 +92,6 @@ struct ContentView: View {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("Done") {
                                 appState.showingSettings = false
-                                //Task { setupApp() }
                             }
                         }
                     }
@@ -118,42 +101,86 @@ struct ContentView: View {
             WelcomeView {
                 appState.showingWelcome = false
                 appState.isFirstLaunch = false
-                appState.showingSettings = false //no need to display settingsView
+                appState.showingSettings = false
             }
             .ignoresSafeArea()
         }
     }
-    
+
+    // MARK: - Main Content
+
+    @ViewBuilder
     private var mainContent: some View {
-        FullscreenPlayerContainer(
-            player: player,
-            playerStateManager: playerStateManager,
-            api: api
-        ) {
-            if DeviceType.current == .iPad {
-                iPadLayout
-            } else {
-                iPhoneLayout
+        // Guard ensures we never render tabs with nil ViewModels.
+        // In practice this can't be reached before .ready, but the compiler
+        // needs the explicit unwrap.
+        if let home = homeViewModel,
+           let library = libraryViewModel,
+           let series = seriesViewModel,
+           let authors = authorsViewModel,
+           let downloads = downloadsViewModel {
+            FullscreenPlayerContainer(
+                player: player,
+                playerStateManager: playerStateManager,
+                api: dependencies.apiClient
+            ) {
+                if DeviceType.current == .iPad {
+                    iPadLayout(
+                        home: home,
+                        library: library,
+                        series: series,
+                        authors: authors,
+                        downloads: downloads
+                    )
+                } else {
+                    iPhoneLayout(
+                        home: home,
+                        library: library,
+                        series: series,
+                        authors: authors,
+                        downloads: downloads
+                    )
+                }
             }
+            .environment(dependencies.sleepTimerService)
+        } else {
+            // setupApp() is in progress — show a spinner rather than
+            // crashing or rendering a broken state.
+            LoadingView(message: "Loading data...")
+                .padding(.bottom, 80)
         }
-        // FIX: Update from .environmentObject() to .environment()
-        .environment(dependencies.sleepTimerService)
     }
-    // MARK: - iPad Layout (Sidebar)
-    
-    private var iPadLayout: some View {
+
+    // MARK: - iPad Layout
+
+    private func iPadLayout(
+        home: HomeViewModel,
+        library: LibraryViewModel,
+        series: SeriesViewModel,
+        authors: AuthorsViewModel,
+        downloads: DownloadsViewModel
+    ) -> some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            iPadSidebarContent
-                // FIX: Use .environment() for @Observable objects, NOT .environmentObject()
+            iPadSidebarContent(library: library, series: series, downloads: downloads)
                 .environment(dependencies)
         } detail: {
-            selectedTabView
+            selectedTabView(
+                home: home,
+                library: library,
+                series: series,
+                authors: authors,
+                downloads: downloads
+            )
         }
         .accentColor(theme.accent)
         .id(theme.accent)
     }
-    
-    private var iPadSidebarContent: some View {
+
+    private func iPadSidebarContent(
+        library: LibraryViewModel,
+        series: SeriesViewModel,
+        downloads: DownloadsViewModel
+    ) -> some View {
         List {
             Section {
                 Button(action: { appState.selectedTab = .home }) {
@@ -164,7 +191,7 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                 }
                 .listRowBackground(appState.selectedTab == .home ? Color.accentColor.opacity(0.15) : Color.clear)
-                
+
                 Button(action: { appState.selectedTab = .library }) {
                     HStack {
                         Label("Library", systemImage: "books.vertical.fill")
@@ -173,7 +200,7 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                 }
                 .listRowBackground(appState.selectedTab == .library ? Color.accentColor.opacity(0.15) : Color.clear)
-                
+
                 Button(action: { appState.selectedTab = .series }) {
                     HStack {
                         Label("Series", systemImage: "play.square.stack.fill")
@@ -182,7 +209,7 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                 }
                 .listRowBackground(appState.selectedTab == .series ? Color.accentColor.opacity(0.15) : Color.clear)
-                
+
                 Button(action: { appState.selectedTab = .downloads }) {
                     HStack {
                         Label("Downloads", systemImage: "arrow.down.circle.fill")
@@ -201,14 +228,12 @@ struct ContentView: View {
                 }
                 .listRowBackground(appState.selectedTab == .downloads ? Color.accentColor.opacity(0.15) : Color.clear)
             }
-            
+
             Section("Quick Actions") {
-                Button(action: {
-                    appState.showingSettings = true
-                }) {
+                Button(action: { appState.showingSettings = true }) {
                     Label("Settings", systemImage: "gearshape")
                 }
-                
+
                 if appState.selectedTab == .library || appState.selectedTab == .series {
                     Button(action: {
                         NotificationCenter.default.post(name: .init("RefreshCurrentView"), object: nil)
@@ -217,40 +242,33 @@ struct ContentView: View {
                     }
                 }
             }
-            
+
             if appState.selectedTab == .library {
-                LibrarySidebarFilters(viewModel: libraryViewModel)
+                LibrarySidebarFilters(viewModel: library)
             } else if appState.selectedTab == .series {
-                SeriesSidebarSort(viewModel: seriesViewModel)
+                SeriesSidebarSort(viewModel: series)
             }
-            
+
             if appState.selectedTab == .library || appState.selectedTab == .series || appState.selectedTab == .downloads {
                 Section("Library Info") {
                     HStack {
-                        Image(systemName: "books.vertical.fill")
-                            .foregroundColor(.blue)
+                        Image(systemName: "books.vertical.fill").foregroundColor(.blue)
                         Text("Books")
                         Spacer()
-                        Text("\(libraryViewModel.totalBooksCount)")
-                            .foregroundColor(.secondary)
+                        Text("\(library.totalBooksCount)").foregroundColor(.secondary)
                     }
-                    
                     HStack {
-                        Image(systemName: "arrow.down.circle")
-                            .foregroundColor(.green)
+                        Image(systemName: "arrow.down.circle").foregroundColor(.green)
                         Text("Downloaded")
                         Spacer()
-                        Text("\(downloadManager.downloadedBooks.count)")
-                            .foregroundColor(.secondary)
+                        Text("\(downloadManager.downloadedBooks.count)").foregroundColor(.secondary)
                     }
-                    
                     HStack {
                         Image(systemName: appState.isDeviceOnline ? "icloud" : "icloud.slash")
                             .foregroundColor(appState.isDeviceOnline ? .green : .red)
                         Text("Status")
                         Spacer()
-                        Text(appState.isDeviceOnline ? "Online" : "Offline")
-                            .foregroundColor(.secondary)
+                        Text(appState.isDeviceOnline ? "Online" : "Offline").foregroundColor(.secondary)
                     }
                 }
             }
@@ -259,157 +277,135 @@ struct ContentView: View {
         .navigationTitle("StoryTeller")
         .listStyle(.sidebar)
     }
-    
-    private var iPhoneLayout: some View {
+
+    // MARK: - iPhone Layout
+
+    private func iPhoneLayout(
+        home: HomeViewModel,
+        library: LibraryViewModel,
+        series: SeriesViewModel,
+        authors: AuthorsViewModel,
+        downloads: DownloadsViewModel
+    ) -> some View {
         @Bindable var appState = appState
-        
+
         return TabView(selection: $appState.selectedTab) {
-            homeTab
-            libraryTab
-            seriesTab
-            authorsTab
-            downloadsTab
+            NavigationStack {
+                HomeView(viewModel: home)
+            }
+            .tabItem { Image(systemName: "sharedwithyou"); Text("Explore") }
+            .tag(TabIndex.home)
+
+            NavigationStack {
+                LibraryView(viewModel: library, columnVisibility: $columnVisibility)
+            }
+            .tabItem { Image(systemName: "books.vertical.fill"); Text("Library") }
+            .tag(TabIndex.library)
+
+            NavigationStack {
+                SeriesView(viewModel: series)
+            }
+            .tabItem { Image(systemName: "play.square.stack.fill"); Text("Series") }
+            .tag(TabIndex.series)
+
+            NavigationStack {
+                AuthorsView(viewModel: authors)
+            }
+            .tabItem { Image(systemName: "person.2"); Text("Authors") }
+            .tag(TabIndex.authors)
+
+            NavigationStack {
+                DownloadsView(viewModel: downloads)
+            }
+            .tabItem { Image(systemName: "arrow.down.circle.fill"); Text("Downloads") }
+            .badge(downloadManager.downloadedBooks.count)
+            .tag(TabIndex.downloads)
         }
         .accentColor(theme.accent)
         .id(theme.accent)
     }
-    
+
+    // MARK: - iPad Selected Tab
+
     @ViewBuilder
-    private var selectedTabView: some View {
+    private func selectedTabView(
+        home: HomeViewModel,
+        library: LibraryViewModel,
+        series: SeriesViewModel,
+        authors: AuthorsViewModel,
+        downloads: DownloadsViewModel
+    ) -> some View {
         switch appState.selectedTab {
         case .home:
-            NavigationStack {
-                HomeView(viewModel: homeViewModel)
-            }
+            NavigationStack { HomeView(viewModel: home) }
         case .library:
-            NavigationStack {
-                LibraryView(viewModel: libraryViewModel, columnVisibility: $columnVisibility)
-            }
+            NavigationStack { LibraryView(viewModel: library, columnVisibility: $columnVisibility) }
         case .series:
-            NavigationStack {
-                SeriesView(viewModel: seriesViewModel)
-            }
+            NavigationStack { SeriesView(viewModel: series) }
         case .authors:
-            NavigationStack {
-                AuthorsView(viewModel: authorsViewModel)
-            }
+            NavigationStack { AuthorsView(viewModel: authors) }
         case .downloads:
-            NavigationStack {
-                DownloadsView(viewModel: downloadsViewModel)
-            }
+            NavigationStack { DownloadsView(viewModel: downloads) }
         }
     }
-    
-    private var homeTab: some View {
-        NavigationStack {
-            HomeView(viewModel: homeViewModel)
-        }
-        .tabItem {
-            Image(systemName: "sharedwithyou")
-            Text("Explore")
-        }
-        .tag(TabIndex.home)
-    }
-    
-    private var libraryTab: some View {
-        NavigationStack {
-            LibraryView(viewModel: libraryViewModel, columnVisibility: $columnVisibility)
-        }
-        .tabItem {
-            Image(systemName: "books.vertical.fill")
-            Text("Library")
-        }
-        .tag(TabIndex.library)
-    }
-    
-    private var seriesTab: some View {
-        NavigationStack {
-            SeriesView(viewModel: seriesViewModel)
-        }
-        .tabItem {
-            Image(systemName: "play.square.stack.fill")
-            Text("Series")
-        }
-        .tag(TabIndex.series)
-    }
-    
-    private var authorsTab: some View {
-        NavigationStack {
-            AuthorsView(viewModel: authorsViewModel)
-        }
-        .tabItem {
-            Image(systemName: "person.2")
-            Text("Authors")
-        }
-        .tag(TabIndex.authors)
-    }
-    
-    private var downloadsTab: some View {
-        NavigationStack {
-            DownloadsView(viewModel: downloadsViewModel)
-        }
-        .tabItem {
-            Image(systemName: "arrow.down.circle.fill")
-            Text("Downloads")
-        }
-        .badge(downloadManager.downloadedBooks.count)
-        .tag(TabIndex.downloads)
-    }
-    
+
+    // MARK: - App Setup
+
     private func setupApp() {
         Task { @MainActor in
             appState.loadingState = .loadingCredentials
-            
+
             guard let baseURL = UserDefaults.standard.string(forKey: "baseURL"),
                   let username = UserDefaults.standard.string(forKey: "stored_username") else {
                 appState.loadingState = .noCredentialsSaved
                 return
             }
-            
-            self.bookCount = await downloadManager.preloadDownloadedBooksCount()
-            
+
+            bookCount = await downloadManager.preloadDownloadedBooksCount()
+
             appState.loadingState = .credentialsFoundValidating
-            
+
             do {
                 let token = try KeychainService.shared.getToken(for: username)
+
+                // Configure the container — this is the single point where
+                // the real API client is created. All ViewModels are built
+                // after this call so they all receive valid credentials.
                 dependencies.configureAPI(baseURL: baseURL, token: token)
-                
-                // FIX: Recreate ViewModels now that dependencies are configured
-                // This ensures they use the valid API client instead of the placeholder
-                homeViewModel = dependencies.makeHomeViewModel()
-                libraryViewModel = dependencies.makeLibraryViewModel()
-                seriesViewModel = dependencies.makeSeriesViewModel()
-                authorsViewModel = dependencies.makeAuthorsViewModel()
-                downloadsViewModel = dependencies.makeDownloadsViewModel()
-                
+
                 let client = dependencies.apiClient!
                 let connectionResult = await testConnection(client: client)
-                
+
                 switch connectionResult {
-                
                 case .success:
                     appState.isServerReachable = true
                     player.configure(baseURL: baseURL, authToken: token, downloadManager: downloadManager)
                     appState.loadingState = .loadingData
                     await initAppLibrary(client: client)
                     await dependencies.initializeSharedRepositories(isOnline: true)
+
+                    // Build ViewModels here — after configureAPI() — so they
+                    // receive the real client, not a placeholder.
+                    rebuildViewModels()
+
                     appState.loadingState = .ready
                     setupCacheManager()
-                    
+
                 case .networkError(let issueType):
                     appState.isServerReachable = false
+                    await dependencies.initializeSharedRepositories(isOnline: false)
+                    rebuildViewModels()
                     appState.loadingState = .networkError(issueType)
-                    await dependencies.initializeSharedRepositories(isOnline: false)
-                    
-                case .failed:
+
+                case .failed, .authenticationError:
                     appState.isServerReachable = false
-                    appState.loadingState = .networkError(ConnectionIssueType.serverError)
                     await dependencies.initializeSharedRepositories(isOnline: false)
-                    
-                case .authenticationError:
-                    appState.loadingState = .authenticationError
-                    await dependencies.initializeSharedRepositories(isOnline: false)
+                    rebuildViewModels()
+                    appState.loadingState = connectionResult == .authenticationError
+                        ? .authenticationError
+                        : .networkError(.serverError)
                 }
+
             } catch {
                 AppLogger.general.error("[ContentView] Keychain error: \(error)")
                 appState.loadingState = .authenticationError
@@ -417,11 +413,22 @@ struct ContentView: View {
             }
         }
     }
-    
+
+    /// Creates all five ViewModels from the now-configured container.
+    /// Called exactly once per setup cycle, after configureAPI().
+    private func rebuildViewModels() {
+        homeViewModel     = dependencies.makeHomeViewModel()
+        libraryViewModel  = dependencies.makeLibraryViewModel()
+        seriesViewModel   = dependencies.makeSeriesViewModel()
+        authorsViewModel  = dependencies.makeAuthorsViewModel()
+        downloadsViewModel = dependencies.makeDownloadsViewModel()
+    }
+
+    // MARK: - Helpers
+
     private func initAppLibrary(client: AudiobookshelfClient) async {
-        let libraryRepository = dependencies.libraryRepository
         do {
-            let selectedLibrary = try await libraryRepository.initializeLibrarySelection()
+            let selectedLibrary = try await dependencies.libraryRepository.initializeLibrarySelection()
             if let library = selectedLibrary {
                 AppLogger.general.info("[ContentView] Library initialized: \(library.name)")
             } else {
@@ -433,27 +440,27 @@ struct ContentView: View {
             AppLogger.general.error("[ContentView] Initial data load failed: \(error)")
         }
     }
-    
+
     private func handleRepositoryError(_ error: RepositoryError) {
         switch error {
         case .networkError(let urlError as URLError):
             switch urlError.code {
             case .notConnectedToInternet:
-                AppLogger.general.error("[ContentView] No internet - offline mode available")
+                AppLogger.general.error("[ContentView] No internet — offline mode available")
             case .timedOut:
-                AppLogger.general.error("[ContentView] Timeout - server might be slow")
+                AppLogger.general.error("[ContentView] Timeout — server might be slow")
             default:
                 AppLogger.general.error("[ContentView] Network error: \(urlError)")
             }
         case .decodingError:
-            AppLogger.general.error("[ContentView] Data format error - check server version")
+            AppLogger.general.error("[ContentView] Data format error — check server version")
         case .unauthorized:
             appState.loadingState = .authenticationError
         default:
             AppLogger.general.error("[ContentView] Repository error: \(error)")
         }
     }
-    
+
     private func setupCacheManager() {
         Task { @MainActor in
             CoverCacheManager.shared.updateCacheLimits()
@@ -462,7 +469,7 @@ struct ContentView: View {
             }
         }
     }
-        
+
     private func testConnection(client: AudiobookshelfClient) async -> ConnectionTestResult {
         guard appState.isDeviceOnline else {
             return .networkError(.noInternet)
@@ -485,12 +492,12 @@ struct ContentView: View {
 }
 
 // MARK: - Library Sidebar Filters
+
 struct LibrarySidebarFilters: View {
     @Bindable var viewModel: LibraryViewModel
-    
+
     var body: some View {
         Section("Filters & Sorting") {
-            // Sort Options
             Menu {
                 ForEach(LibrarySortOption.allCases) { option in
                     Button {
@@ -510,13 +517,10 @@ struct LibrarySidebarFilters: View {
                     Image(systemName: "arrow.up.arrow.down")
                     Text("Sort: \(viewModel.filterState.selectedSortOption.rawValue)")
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
                 }
             }
-            
-            // Sort Direction
+
             Button {
                 viewModel.filterState.sortAscending.toggle()
                 viewModel.filterState.saveToDefaults()
@@ -527,41 +531,30 @@ struct LibrarySidebarFilters: View {
                     Spacer()
                 }
             }
-            
-            // Downloaded Only Filter
-            Button {
-                viewModel.toggleDownloadFilter()
-            } label: {
+
+            Button { viewModel.toggleDownloadFilter() } label: {
                 HStack {
                     Label("Downloaded Only", systemImage: "arrow.down.circle")
                     Spacer()
                     if viewModel.filterState.showDownloadedOnly {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                        Image(systemName: "checkmark").foregroundColor(.accentColor)
                     }
                 }
             }
-            
-            // Series Grouped
-            Button {
-                viewModel.toggleSeriesMode()
-            } label: {
+
+            Button { viewModel.toggleSeriesMode() } label: {
                 HStack {
                     Label("Group Series", systemImage: "square.stack.3d.up")
                     Spacer()
                     if viewModel.filterState.showSeriesGrouped {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                        Image(systemName: "checkmark").foregroundColor(.accentColor)
                     }
                 }
             }
-            
-            // Reset Filters
+
             if viewModel.filterState.hasActiveFilters {
                 Button(role: .destructive) {
-                    withAnimation(.spring(response: 0.3)) {
-                        viewModel.resetFilters()
-                    }
+                    withAnimation(.spring(response: 0.3)) { viewModel.resetFilters() }
                 } label: {
                     Label("Reset Filters", systemImage: "arrow.counterclockwise")
                 }
@@ -571,9 +564,10 @@ struct LibrarySidebarFilters: View {
 }
 
 // MARK: - Series Sidebar Sort
+
 struct SeriesSidebarSort: View {
     @Bindable var viewModel: SeriesViewModel
-    
+
     var body: some View {
         Section("Sorting") {
             Menu {
@@ -596,16 +590,16 @@ struct SeriesSidebarSort: View {
                     Image(systemName: "arrow.up.arrow.down")
                     Text("Sort: \(viewModel.filterState.selectedSortOption.rawValue)")
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
                 }
             }
         }
     }
 }
 
-enum ConnectionTestResult {
+// MARK: - Connection Test Result
+
+enum ConnectionTestResult: Equatable {
     case success
     case networkError(ConnectionIssueType)
     case authenticationError
