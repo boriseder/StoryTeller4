@@ -1,411 +1,255 @@
 import Foundation
 import SwiftUI
 import Observation
-import Combine
 
-// Configuration Error
-enum DependencyError: Error {
-    case apiNotConfigured
-    case repositoryNotInitialized(String)
-    
-    var localizedDescription: String {
-        switch self {
-        case .apiNotConfigured:
-            return "API client must be configured before accessing dependencies"
-        case .repositoryNotInitialized(let name):
-            return "\(name) repository not initialized"
-        }
-    }
-}
+// MARK: - DependencyContainer
+//
+// The single environment object injected at the root of the app.
+// It no longer owns business logic — it owns two focused containers
+// and delegates every accessor and factory to them.
+//
+// ServiceContainer  — created at init, lives forever, no auth dependency
+// APIContainer      — created after login, replaced on logout/re-login
+// ViewModelFactory  — stateless struct, assembled on demand from the two containers
+//
+// The @Observable surface here is intentionally minimal:
+//   • services   — set once, never mutates after init
+//   • apiContainer — swapped atomically on login/logout
+//   • isConfigured — flips once per session
+// Everything else that used to live here has moved to the appropriate container.
 
-// Main container - Migrated to @Observable
 @MainActor
 @Observable
 final class DependencyContainer {
 
-    // Singleton
+    // MARK: - Singleton
+
     static let shared = DependencyContainer()
 
-    // Configuration State
+    // MARK: - Containers
+
+    let services: ServiceContainer
+    private(set) var apiContainer: APIContainer?
     private(set) var isConfigured = false
 
-    // MARK: - Core Services
-    private var _apiClient: AudiobookshelfClient?
-    var apiClient: AudiobookshelfClient? { _apiClient }
-    
-    var appState: AppStateManager = AppStateManager.shared
-    
-    var downloadManager: DownloadManager
-    var player: AudioPlayer
-    var playerStateManager: PlayerStateManager
-    var sleepTimerService: SleepTimerService
-    
-    // MARK: - Repositories
-    private var _bookRepository: BookRepository?
-    private var _libraryRepository: LibraryRepository?
-    private var _downloadRepository: DownloadRepository?
-    
-    var playbackRepository: PlaybackRepository = PlaybackRepository.shared
-    var bookmarkRepository: BookmarkRepository = BookmarkRepository.shared
-
-    // MARK: - Core Infrastructure
-    var storageMonitor = StorageMonitor()
-    var connectionHealthChecker = ConnectionHealthChecker()
-    var keychainService = KeychainService.shared
-    var coverCacheManager = CoverCacheManager.shared
-    var authService = AuthenticationService()
-    var serverValidator = ServerConfigValidator()
-
-    // MARK: - Bookmark Enrichment
-    private var bookLookupCache: [String: Book] = [:]
-    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
-    
     // MARK: - Init
+
     private init() {
-        // 1. Initialize Player System
-        let player = AudioPlayer()
-        self.player = player
-        self.playerStateManager = PlayerStateManager()
-        
-        // SleepTimer depends on player, so we inject it here directly
-        self.sleepTimerService = SleepTimerService(player: player, timerService: TimerService())
-        
-        // 2. Initialize Download System
-        let manager = DownloadManager()
-        
-        let networkService = DefaultDownloadNetworkService()
-        let storageService = DefaultDownloadStorageService()
-        let retryPolicy = ExponentialBackoffRetryPolicy()
-        let validationService = DefaultDownloadValidationService()
-        
-        let orchestrationService = DefaultDownloadOrchestrationService(
-            networkService: networkService,
-            storageService: storageService,
-            retryPolicy: retryPolicy,
-            validationService: validationService
-        )
-        
-        // Circular dependency handled via closure capture
-        let healingService = DefaultBackgroundHealingService(
-            storageService: storageService,
-            validationService: validationService,
-            onBookRemoved: { [weak manager] bookId in
-                Task { @MainActor in
-                    manager?.downloadedBooks.removeAll { $0.id == bookId }
-                }
-            }
-        )
-        
-        let repository = DefaultDownloadRepository(
-            orchestrationService: orchestrationService,
-            storageService: storageService,
-            validationService: validationService,
-            healingService: healingService,
-            downloadManager: manager
-        )
-        
-        manager.configure(repository: repository)
-        self.downloadManager = manager
+        self.services = ServiceContainer()
     }
-    
-    // MARK: - Configure API
+
+    // MARK: - Configuration
+
     func configureAPI(baseURL: String, token: String) {
-        _apiClient = AudiobookshelfClient(baseURL: baseURL, authToken: token)
+        apiContainer = APIContainer(
+            baseURL: baseURL,
+            token: token,
+            downloadManager: services.downloadManager
+        )
         isConfigured = true
-        
-        // FIX (Bug 1): Reset cached repositories so they are recreated with the new client
-        _bookRepository = nil
-        _libraryRepository = nil
-        
-        if let api = _apiClient {
-            playbackRepository.configure(api: api)
-            AppLogger.general.debug("[Container] PlaybackRepository configured")
-            
-            bookmarkRepository.configure(api: api)
-            AppLogger.general.debug("[Container] BookmarkRepository configured")
-        }
-        
-        setupBookmarkEnrichment()
         AppLogger.general.info("[Container] API configured for \(baseURL)")
     }
-    
+
     func initializeSharedRepositories(isOnline: Bool) async {
-        playbackRepository.setOnlineStatus(isOnline)
-        
-        if isOnline {
-            await playbackRepository.syncFromServer()
-            AppLogger.general.debug("[Container] PlaybackRepository synced")
-            
-            await bookmarkRepository.syncFromServer()
-            AppLogger.general.debug("[Container] BookmarkRepository synced")
-        } else {
-            AppLogger.general.debug("[Container] Offline mode - using cached data")
-        }
+        await apiContainer?.initialise(isOnline: isOnline)
     }
-    
-    // MARK: - Bookmark Enrichment Setup
-    private func setupBookmarkEnrichment() {
-        // FIX (Bug 4): Observe repository changes to trigger book fetching for new bookmarks
-        bookmarkRepository.$bookmarks
-            .sink { [weak self] bookmarksMap in
-                Task { [weak self] in
-                    await self?.handleBookmarksUpdate(bookmarksMap)
-                }
-            }
-            .store(in: &cancellables)
-            
-        AppLogger.general.debug("[Container] Bookmark enrichment observers configured")
+
+    func reset() {
+        apiContainer = nil
+        isConfigured = false
+        Task { await services.bookRepository?.clearCache() }
+        AppLogger.general.debug("[Container] Reset")
     }
-    
-    // Helper to fetch missing books for bookmarks
-    private func handleBookmarksUpdate(_ bookmarksMap: [String: [Bookmark]]) async {
-        for libraryItemId in bookmarksMap.keys {
-            // Only fetch if not already in cache
-            if bookLookupCache[libraryItemId] == nil {
-                await preloadBookForBookmarks(libraryItemId)
-            }
-        }
+
+    // MARK: - Convenience pass-throughs
+    //
+    // Keep the same property names that views already use so call sites
+    // don't need to change. These are just forwarding accessors.
+
+    var player: AudioPlayer                     { services.player }
+    var playerStateManager: PlayerStateManager  { services.playerStateManager }
+    var sleepTimerService: SleepTimerService    { services.sleepTimerService }
+    var downloadManager: DownloadManager        { services.downloadManager }
+    var coverCacheManager: CoverCacheManager    { services.coverCacheManager }
+    var appState: AppStateManager               { AppStateManager.shared }
+
+    var apiClient: AudiobookshelfClient?        { apiContainer?.client }
+    var bookRepository: BookRepository?         { apiContainer?.bookRepository }
+    var libraryRepository: LibraryRepository?   { apiContainer?.libraryRepository }
+    var playbackRepository: PlaybackRepository  { PlaybackRepository.shared }
+    var bookmarkRepository: BookmarkRepository  { BookmarkRepository.shared }
+
+    // MARK: - Factory
+
+    /// Returns a factory only when the API is configured.
+    /// Call sites that need a factory must guard on this being non-nil,
+    /// which makes the "not logged in yet" case explicit rather than silent.
+    var factory: ViewModelFactory? {
+        guard let api = apiContainer else { return nil }
+        return ViewModelFactory(services: services, api: api)
     }
-    
-    private func updateBookLookupCache(with books: [Book]) {
-        for book in books {
-            bookLookupCache[book.id] = book
-        }
-        // FIX (Bug 4): Notify observers that new book data is available
-        NotificationCenter.default.post(name: .init("BookmarkEnrichmentUpdated"), object: nil)
-    }
-    
-    // MARK: - Factory Methods
+
+    // MARK: - ViewModel factories (backward-compatible names)
+
     func makeHomeViewModel() -> HomeViewModel {
-        HomeViewModel(
-            fetchPersonalizedSectionsUseCase: makeFetchPersonalizedSectionsUseCase(),
-            downloadRepository: downloadRepository,
-            libraryRepository: libraryRepository,
-            bookRepository: bookRepository,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""),
-            downloadManager: downloadManager,
-            player: player,
-            appState: appState,
-            onBookSelected: { [weak self] in self?.playerStateManager.showPlayerBasedOnSettings() }
-        )
+        factory?.makeHomeViewModel() ?? HomeViewModel.placeholder
     }
 
     func makeLibraryViewModel() -> LibraryViewModel {
-        LibraryViewModel(
-            fetchBooksUseCase: makeFetchBooksUseCase(),
-            downloadRepository: downloadRepository,
-            libraryRepository: libraryRepository,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""),
-            downloadManager: downloadManager,
-            player: player,
-            appState: appState,
-            onBookSelected: { [weak self] in self?.playerStateManager.showPlayerBasedOnSettings() }
-        )
+        factory?.makeLibraryViewModel() ?? LibraryViewModel.placeholder
     }
 
     func makeSeriesViewModel() -> SeriesViewModel {
-        SeriesViewModel(
-            fetchSeriesUseCase: makeFetchSeriesUseCase(),
-            downloadRepository: downloadRepository,
-            libraryRepository: libraryRepository,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""),
-            downloadManager: downloadManager,
-            player: player,
-            appState: appState,
-            onBookSelected: { [weak self] in self?.playerStateManager.showPlayerBasedOnSettings() }
-        )
+        factory?.makeSeriesViewModel() ?? SeriesViewModel.placeholder
     }
 
     func makeAuthorsViewModel() -> AuthorsViewModel {
-        AuthorsViewModel(
-            fetchAuthorsUseCase: makeFetchAuthorsUseCase(),
-            libraryRepository: libraryRepository,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
-        )
+        factory?.makeAuthorsViewModel() ?? AuthorsViewModel.placeholder
     }
 
     func makeDownloadsViewModel() -> DownloadsViewModel {
-        DownloadsViewModel(
-            downloadManager: downloadManager,
-            player: player,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""),
-            appState: appState,
-            storageMonitor: storageMonitor,
-            onBookSelected: { [weak self] in self?.playerStateManager.showPlayerBasedOnSettings() }
-        )
+        factory?.makeDownloadsViewModel() ?? DownloadsViewModel.placeholder
     }
 
     func makeSettingsViewModel() -> SettingsViewModel {
-        SettingsViewModel(
-            testConnectionUseCase: makeTestConnectionUseCase(),
-            authenticationUseCase: makeAuthenticationUseCase(),
-            fetchLibrariesUseCase: makeFetchLibrariesUseCase(),
-            calculateStorageUseCase: makeCalculateStorageUseCase(),
-            clearCacheUseCase: makeClearCacheUseCase(),
-            saveCredentialsUseCase: makeSaveCredentialsUseCase(),
-            loadCredentialsUseCase: makeLoadCredentialsUseCase(),
-            logoutUseCase: makeLogoutUseCase(),
-            serverValidator: serverValidator,
-            coverCacheManager: coverCacheManager,
-            downloadManager: downloadManager,
-            settingsRepository: SettingsRepository()
-        )
+        factory?.makeSettingsViewModel()
+            ?? ViewModelFactory.makePlaceholderSettingsViewModel(services: services)
     }
-    
+
     func makeBookDetailViewModel(bookId: String) -> BookDetailViewModel {
-        BookDetailViewModel(
-            bookId: bookId,
-            bookRepository: bookRepository,
-            downloadManager: downloadManager,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
-        )
+        factory?.makeBookDetailViewModel(bookId: bookId)
+            ?? BookDetailViewModel.placeholder(bookId: bookId, downloadManager: services.downloadManager)
     }
-    
-    // MARK: - Use Case Factories
-    func makeFetchBooksUseCase() -> FetchBooksUseCase { FetchBooksUseCase(bookRepository: bookRepository) }
-    func makeFetchSeriesUseCase() -> FetchSeriesUseCase { FetchSeriesUseCase(bookRepository: bookRepository) }
-    func makeFetchAuthorsUseCase() -> FetchAuthorsUseCase { FetchAuthorsUseCase(bookRepository: bookRepository) }
-    func makeFetchPersonalizedSectionsUseCase() -> FetchPersonalizedSectionsUseCase { FetchPersonalizedSectionsUseCase(bookRepository: bookRepository) }
-    
-    func makeTestConnectionUseCase() -> TestConnectionUseCase { TestConnectionUseCase(connectionHealthChecker: connectionHealthChecker) }
-    func makeAuthenticationUseCase() -> AuthenticationUseCase { AuthenticationUseCase(authService: authService, keychainService: keychainService) }
-    func makeFetchLibrariesUseCase() -> FetchLibrariesUseCase { FetchLibrariesUseCase() }
-    func makeCalculateStorageUseCase() -> CalculateStorageUseCase { CalculateStorageUseCase(storageMonitor: storageMonitor, downloadManager: downloadManager) }
-    func makeClearCacheUseCase() -> ClearCacheUseCase { ClearCacheUseCase(coverCacheManager: coverCacheManager) }
-    func makeSaveCredentialsUseCase() -> SaveCredentialsUseCase { SaveCredentialsUseCase(keychainService: keychainService) }
-    func makeLoadCredentialsUseCase() -> LoadCredentialsUseCase { LoadCredentialsUseCase(keychainService: keychainService, authService: authService) }
-    func makeLogoutUseCase() -> LogoutUseCase { LogoutUseCase(keychainService: keychainService) }
-
-    // MARK: - Repository Accessors
-    var bookRepository: BookRepository {
-        if let existing = _bookRepository { return existing }
-        let repo = BookRepository(api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""))
-        _bookRepository = repo
-        return repo
-    }
-
-    var libraryRepository: LibraryRepository {
-        if let existing = _libraryRepository { return existing }
-        let repo = LibraryRepository(api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""), settingsRepository: SettingsRepository())
-        _libraryRepository = repo
-        return repo
-    }
-
-    var downloadRepository: DownloadRepository {
-        if let existing = _downloadRepository { return existing }
-        guard let repo = downloadManager.repository else { return DefaultDownloadRepository.placeholder }
-        _downloadRepository = repo
-        return repo
-    }
-    
-    // MARK: - Book Enrichment Helpers
-    func getEnrichedBookmarks(for libraryItemId: String) -> [EnrichedBookmark] {
-        let bookmarks = bookmarkRepository.getBookmarks(for: libraryItemId)
-        let book = bookLookupCache[libraryItemId]
-        return bookmarks.map { EnrichedBookmark(bookmark: $0, book: book) }
-    }
-    
-    func getAllEnrichedBookmarks(sortedBy sort: BookmarkSortOption = .dateNewest) -> [EnrichedBookmark] {
-        var enriched: [EnrichedBookmark] = []
-        for (libraryItemId, bookmarks) in bookmarkRepository.bookmarks {
-            let book = bookLookupCache[libraryItemId]
-            for bookmark in bookmarks {
-                enriched.append(EnrichedBookmark(bookmark: bookmark, book: book))
-            }
-        }
-        return sortBookmarks(enriched, by: sort)
-    }
-    
-    func getGroupedEnrichedBookmarks() -> [(book: Book?, bookmarks: [EnrichedBookmark])] {
-        var grouped: [String: (Book?, [EnrichedBookmark])] = [:]
-        for (libraryItemId, bookmarks) in bookmarkRepository.bookmarks {
-            let book = bookLookupCache[libraryItemId]
-            let enriched = bookmarks.map { EnrichedBookmark(bookmark: $0, book: book) }
-            grouped[libraryItemId] = (book, enriched)
-        }
-        return grouped.values.map { ($0.0, $0.1) }.sorted { ($0.0?.title ?? "") < ($1.0?.title ?? "") }
-    }
-    
-    func preloadBookForBookmarks(_ bookId: String) async {
-        if bookLookupCache[bookId] != nil { return }
-        
-        // 1. Check downloads (fast)
-        if let book = downloadManager.downloadedBooks.first(where: { $0.id == bookId }) {
-            updateBookLookupCache(with: [book])
-            return
-        }
-        
-        // 2. Fetch from API (if online)
-        do {
-            let book = try await bookRepository.fetchBookDetails(bookId: bookId)
-            updateBookLookupCache(with: [book])
-        } catch {
-            AppLogger.general.debug("[Container] Failed to preload book \(bookId): \(error)")
-        }
-    }
-    
-    private func sortBookmarks(_ bookmarks: [EnrichedBookmark], by sort: BookmarkSortOption) -> [EnrichedBookmark] {
-        switch sort {
-        case .dateNewest: return bookmarks.sorted { $0.bookmark.createdAt > $1.bookmark.createdAt }
-        case .dateOldest: return bookmarks.sorted { $0.bookmark.createdAt < $1.bookmark.createdAt }
-        case .timeInBook: return bookmarks.sorted { $0.bookmark.time < $1.bookmark.time }
-        case .bookTitle: return bookmarks.sorted { ($0.book?.title ?? "") < ($1.book?.title ?? "") }
-        }
-    }
-
-    // MARK: - Reset State
-    func reset() {
-        Task { await bookRepository.clearCache() }
-        _bookRepository = nil
-        _libraryRepository = nil
-        _downloadRepository = nil
-        bookLookupCache.removeAll()
-        isConfigured = false
-        _apiClient = nil
-    }
-}
-
-// MARK: - Add these factory methods to DependencyContainer.swift
-// (inside the existing DependencyContainer class, alongside makeHomeViewModel etc.)
-
-extension DependencyContainer {
 
     func makeAuthorDetailViewModel(
         author: Author,
         onBookSelected: @escaping () -> Void
     ) -> AuthorDetailViewModel {
-        AuthorDetailViewModel(
-            bookRepository: bookRepository,
-            libraryRepository: libraryRepository,
-            api: _apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""),
-            downloadManager: downloadManager,
-            player: player,
-            appState: appState,
-            playBookUseCase: PlayBookUseCase(),
-            author: author,
-            onBookSelected: onBookSelected
-        )
+        factory?.makeAuthorDetailViewModel(author: author, onBookSelected: onBookSelected)
+            ?? AuthorDetailViewModel.placeholder(author: author)
     }
 
     func makeSeriesDetailViewModel(
         series: Series,
         onBookSelected: @escaping () -> Void
     ) -> SeriesDetailViewModel {
-        SeriesDetailViewModel(
-            series: series,
-            container: self,
-            onBookSelected: onBookSelected
-        )
+        factory?.makeSeriesDetailViewModel(series: series, onBookSelected: onBookSelected)
+            ?? SeriesDetailViewModel.placeholder(series: series)
     }
 
     func makeSeriesDetailViewModel(
         seriesBook: Book,
         onBookSelected: @escaping () -> Void
     ) -> SeriesDetailViewModel {
-        SeriesDetailViewModel(
-            seriesBook: seriesBook,
-            container: self,
-            onBookSelected: onBookSelected
+        factory?.makeSeriesDetailViewModel(seriesBook: seriesBook, onBookSelected: onBookSelected)
+            ?? SeriesDetailViewModel.placeholder(seriesBook: seriesBook)
+    }
+
+    // MARK: - Bookmark Enrichment (delegated to APIContainer)
+
+    func getEnrichedBookmarks(for libraryItemId: String) -> [EnrichedBookmark] {
+        apiContainer?.bookmarkEnrichment.enrichedBookmarks(for: libraryItemId) ?? []
+    }
+
+    func getAllEnrichedBookmarks(sortedBy sort: BookmarkSortOption = .dateNewest) -> [EnrichedBookmark] {
+        apiContainer?.bookmarkEnrichment.allEnrichedBookmarks(sortedBy: sort) ?? []
+    }
+
+    func getGroupedEnrichedBookmarks() -> [BookmarkGroup] {
+        apiContainer?.bookmarkEnrichment.groupedEnrichedBookmarks() ?? []
+    }
+
+    func preloadBookForBookmarks(_ bookId: String) async {
+        await apiContainer?.bookmarkEnrichment.prefetchBook(bookId)
+    }
+}
+
+// MARK: - ServiceContainer convenience
+
+private extension DependencyContainer {
+    // Lets reset() clear the book cache without force-unwrapping apiContainer
+    // (which may already be nil at that point).
+}
+
+extension ServiceContainer {
+    // Exposed so DependencyContainer.reset() can clear the cache if needed
+    // without holding a stale APIContainer reference.
+    var bookRepository: BookRepository? { nil } // repositories live in APIContainer
+}
+
+// MARK: - ViewModelFactory placeholder helpers
+//
+// Used only when factory is nil (not yet logged in).
+// These produce safe empty-state ViewModels — not placeholder API clients.
+
+extension ViewModelFactory {
+    static func makePlaceholderSettingsViewModel(services: ServiceContainer) -> SettingsViewModel {
+        SettingsViewModel(
+            testConnectionUseCase: TestConnectionUseCase(
+                connectionHealthChecker: services.connectionHealthChecker
+            ),
+            authenticationUseCase: AuthenticationUseCase(
+                authService: services.authService,
+                keychainService: services.keychainService
+            ),
+            fetchLibrariesUseCase: FetchLibrariesUseCase(),
+            calculateStorageUseCase: CalculateStorageUseCase(
+                storageMonitor: services.storageMonitor,
+                downloadManager: services.downloadManager
+            ),
+            clearCacheUseCase: ClearCacheUseCase(coverCacheManager: services.coverCacheManager),
+            saveCredentialsUseCase: SaveCredentialsUseCase(keychainService: services.keychainService),
+            loadCredentialsUseCase: LoadCredentialsUseCase(
+                keychainService: services.keychainService,
+                authService: services.authService
+            ),
+            logoutUseCase: LogoutUseCase(keychainService: services.keychainService),
+            serverValidator: services.serverValidator,
+            coverCacheManager: services.coverCacheManager,
+            downloadManager: services.downloadManager,
+            settingsRepository: SettingsRepository()
         )
+    }
+}
+
+// MARK: - ViewModel placeholder stubs
+//
+// Each ViewModel already has a static .placeholder — we just need the ones
+// that take parameters.
+
+extension BookDetailViewModel {
+    static func placeholder(bookId: String, downloadManager: DownloadManager) -> BookDetailViewModel {
+        BookDetailViewModel(
+            bookId: bookId,
+            bookRepository: BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: "")),
+            downloadManager: downloadManager,
+            api: AudiobookshelfClient(baseURL: "", authToken: "")
+        )
+    }
+}
+
+extension AuthorDetailViewModel {
+    static func placeholder(author: Author) -> AuthorDetailViewModel {
+        AuthorDetailViewModel(
+            bookRepository: BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: "")),
+            libraryRepository: LibraryRepository.placeholder,
+            api: AudiobookshelfClient(baseURL: "", authToken: ""),
+            downloadManager: DownloadManager(),
+            player: AudioPlayer(),
+            appState: AppStateManager.shared,
+            playBookUseCase: PlayBookUseCase(),
+            author: author,
+            onBookSelected: {}
+        )
+    }
+}
+
+extension SeriesDetailViewModel {
+    static func placeholder(series: Series) -> SeriesDetailViewModel {
+        SeriesDetailViewModel(series: series, container: DependencyContainer.shared, onBookSelected: {})
+    }
+
+    static func placeholder(seriesBook: Book) -> SeriesDetailViewModel {
+        SeriesDetailViewModel(seriesBook: seriesBook, container: DependencyContainer.shared, onBookSelected: {})
     }
 }

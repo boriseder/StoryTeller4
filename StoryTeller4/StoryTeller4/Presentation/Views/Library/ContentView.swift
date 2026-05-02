@@ -427,20 +427,24 @@ struct ContentView: View {
     // MARK: - Helpers
 
     private func initAppLibrary(client: AudiobookshelfClient) async {
-        do {
-            let selectedLibrary = try await dependencies.libraryRepository.initializeLibrarySelection()
-            if let library = selectedLibrary {
-                AppLogger.general.info("[ContentView] Library initialized: \(library.name)")
-            } else {
-                AppLogger.general.warn("[ContentView] No libraries available")
+            guard let libraryRepository = dependencies.libraryRepository else {
+                AppLogger.general.error("[ContentView] libraryRepository is nil — API not configured")
+                return
             }
-        } catch let error as RepositoryError {
-            handleRepositoryError(error)
-        } catch {
-            AppLogger.general.error("[ContentView] Initial data load failed: \(error)")
-        }
-    }
 
+            do {
+                let selectedLibrary = try await libraryRepository.initializeLibrarySelection()
+                if let library = selectedLibrary {
+                    AppLogger.general.info("[ContentView] Library initialized: \(library.name)")
+                } else {
+                    AppLogger.general.warn("[ContentView] No libraries available")
+                }
+            } catch let error as RepositoryError {
+                handleRepositoryError(error)
+            } catch {
+                AppLogger.general.error("[ContentView] Initial data load failed: \(error)")
+            }
+        }
     private func handleRepositoryError(_ error: RepositoryError) {
         switch error {
         case .networkError(let urlError as URLError):

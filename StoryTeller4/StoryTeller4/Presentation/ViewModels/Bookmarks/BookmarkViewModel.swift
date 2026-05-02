@@ -2,15 +2,6 @@ import Foundation
 import SwiftUI
 import Observation
 
-// MARK: - Bookmark View Model
-//
-// FIX: Removed the Combine `@ObservationIgnored private var cancellables` and the
-// `.sink { }` bridges that were needed to bridge `BookmarkRepository`'s `@Published`
-// properties into this `@Observable` class.
-//
-// Now that `BookmarkRepository` is `@Observable`, SwiftUI automatically propagates
-// changes through the observation graph — no manual bridging required.
-
 @MainActor
 @Observable
 class BookmarkViewModel {
@@ -60,16 +51,6 @@ class BookmarkViewModel {
     }
 
     // MARK: - Data Refresh
-    //
-    // FIX: `refreshData()` is called from `.task {}` in the View and from explicit
-    // action methods. Because `BookmarkRepository` is `@Observable`, the View's
-    // body will re-evaluate automatically when `repository.bookmarks` changes —
-    // making the Combine sink that previously called `refreshData()` unnecessary.
-    //
-    // For the `allBookmarks` array (enriched, sorted), we still need an explicit
-    // refresh because it involves a transformation (enrichment + sort) that
-    // can't be expressed as a simple computed property on the observable graph.
-    // We call it from places where the underlying data changes.
     func refreshData() {
         allBookmarks = dependencies.getAllEnrichedBookmarks(sortedBy: sortOption)
     }
@@ -100,9 +81,14 @@ class BookmarkViewModel {
         Task {
             if player.book?.id != book.id {
                 AppLogger.general.debug("[BookmarkVM] Loading book: \(book.title).")
+
+                // Check download status via downloadManager directly —
+                // downloadRepository was removed from DependencyContainer in the refactor.
+                let isDownloaded = dependencies.downloadManager.isBookDownloaded(book.id)
+
                 await player.load(
                     book: book,
-                    isOffline: dependencies.downloadRepository.getDownloadStatus(for: book.id).isDownloaded,
+                    isOffline: isDownloaded,
                     restoreState: false,
                     autoPlay: false
                 )
@@ -168,7 +154,6 @@ class BookmarkViewModel {
                     time: enriched.bookmark.time,
                     newTitle: newTitle
                 )
-
                 await MainActor.run {
                     editingBookmark = nil
                     editedBookmarkTitle = ""
@@ -187,11 +172,9 @@ class BookmarkViewModel {
     // MARK: - Helper
     private func searchFilter(_ enriched: EnrichedBookmark) -> Bool {
         if searchText.isEmpty { return true }
-
         let query = searchText.lowercased()
         if enriched.bookmark.title.lowercased().contains(query) { return true }
         if let book = enriched.book, book.title.lowercased().contains(query) { return true }
-
         return false
     }
 }
