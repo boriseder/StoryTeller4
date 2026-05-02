@@ -42,7 +42,8 @@ final class DefaultDownloadRepository: DownloadRepository {
         storageService: DownloadStorageService,
         validationService: DownloadValidationService,
         healingService: BackgroundHealingService,
-        downloadManager: DownloadManager
+        downloadManager: DownloadManager,
+        startHealing: Bool = true // 1. Added flag defaulting to true
     ) {
         self.orchestrationService = orchestrationService
         self.storageService = storageService
@@ -51,7 +52,11 @@ final class DefaultDownloadRepository: DownloadRepository {
         self.downloadManager = downloadManager
         
         loadDownloadedBooks()
-        healingService.start()
+        
+        // 2. Only start the healing service if requested
+        if startHealing {
+            healingService.start()
+        }
     }
     
     func downloadBook(_ book: Book, api: AudiobookshelfClient) async throws {
@@ -222,7 +227,6 @@ final class DefaultDownloadRepository: DownloadRepository {
     // Placeholder for use in ViewModels
     @MainActor
     static let placeholder: DefaultDownloadRepository = {
-        // Create concrete implementations of services
         let storageService = DefaultDownloadStorageService()
         let networkService = DefaultDownloadNetworkService()
         let validationService = DefaultDownloadValidationService()
@@ -252,14 +256,12 @@ final class DefaultDownloadRepository: DownloadRepository {
             storageService: storageService,
             validationService: validationService,
             healingService: healingService,
-            downloadManager: downloadManager
+            downloadManager: downloadManager,
+            startHealing: false // 3. Set to false for the placeholder!
         )
     }()
 }
 
-// MARK: - Protocol Extension for Placeholder Access
-
-// This allows protocol-typed properties to access placeholder
 extension DownloadRepository where Self == DefaultDownloadRepository {
     @MainActor
     static var placeholder: DefaultDownloadRepository {
