@@ -7,9 +7,12 @@ enum AppLogger {
     // MARK: - Logger Wrapper
     final class LogWrapper: Sendable {
         let category: String
+        private let osLogger: Logger
         
         nonisolated init(category: String) {
             self.category = category
+            // 1. Initialize the logger ONCE per category
+            self.osLogger = Logger(subsystem: AppLogger.subsystem, category: category)
         }
 
         nonisolated func write(_ level: String, message: String, osLevel: OSLogType) {
@@ -18,11 +21,8 @@ enum AppLogger {
 
             AppLogger.writeToFile(line)
             
-            // Create logger on-demand in MainActor context
-            Task { @MainActor in
-                let logger = Logger(subsystem: AppLogger.subsystem, category: self.category)
-                logger.log(level: osLevel, "\(message, privacy: .public)")
-            }
+            // 2. Log synchronously and directly. No Task, no MainActor hop.
+            osLogger.log(level: osLevel, "\(message, privacy: .public)")
         }
 
         nonisolated func debug(_ msg: String) { write("🐞 DEBUG", message: msg, osLevel: .debug) }
@@ -66,6 +66,7 @@ enum AppLogger {
     private nonisolated static let fileLogger = FileLogger()
 
     nonisolated static func writeToFile(_ text: String) {
+        // The file I/O is still safely isolated to the FileLogger actor
         Task {
             await fileLogger.write(text)
         }
