@@ -31,7 +31,8 @@ enum RepositoryError: LocalizedError, Sendable {
 struct LocalCacheMetadata: Codable, Sendable {
     let timestamp: Date
     
-    init(timestamp: Date) {
+    // 1. Add 'nonisolated' here to satisfy the compiler
+    nonisolated init(timestamp: Date) {
         self.timestamp = timestamp
     }
     
@@ -267,7 +268,7 @@ actor BookCache: BookCacheProtocol {
     }
 
     // MARK: - Private Disk I/O Methods
-    
+            
     // Static methods marked nonisolated to allow calling from any context
     nonisolated private static func saveToDisk<T: Encodable & Sendable>(_ data: T, key: String, at cacheURL: URL) async {
         let fileURL = cacheURL.appendingPathComponent("\(key).json")
@@ -276,7 +277,8 @@ actor BookCache: BookCacheProtocol {
         try? encoded.write(to: fileURL)
         
         // Save metadata
-        let metadata = await LocalCacheMetadata(timestamp: Date())
+        // FIX: Removed the unnecessary 'await' here since LocalCacheMetadata is a plain struct.
+        let metadata = LocalCacheMetadata(timestamp: Date())
         let metadataURL = cacheURL.appendingPathComponent("\(key)_metadata.json")
         if let metadataData = try? JSONEncoder().encode(metadata) {
             try? metadataData.write(to: metadataURL)
