@@ -86,7 +86,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appState.showingSettings) {
             NavigationStack {
-                SettingsView()
+                SettingsView(viewModel: dependencies.makeSettingsViewModel())
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarLeading) {
@@ -98,12 +98,12 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $appState.showingWelcome) {
-            WelcomeView {
-                appState.showingWelcome = false
-                appState.isFirstLaunch = false
-                appState.showingSettings = false
-            }
-            .ignoresSafeArea()
+            WelcomeView(viewModel: dependencies.makeSettingsViewModel()) {
+            appState.showingWelcome = false
+            appState.isFirstLaunch = false
+            appState.showingSettings = false
+        }
+        .ignoresSafeArea()
         }
     }
 

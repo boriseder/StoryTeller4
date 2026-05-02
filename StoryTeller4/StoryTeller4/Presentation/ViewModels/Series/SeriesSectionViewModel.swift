@@ -8,31 +8,36 @@ class SeriesSectionViewModel {
     let series: Series
     let api: AudiobookshelfClient
     let onBookSelected: (Book) -> Void
-    var container: DependencyContainer
-    
-    var player: AudioPlayer { container.player }
-    var downloadManager: DownloadManager { container.downloadManager }
-    
+
+    var player: AudioPlayer
+    var downloadManager: DownloadManager
+
     var books: [Book] = []
     var isLoading = false
     var error: Error?
-    
+
     init(
         series: Series,
         api: AudiobookshelfClient,
         onBookSelected: @escaping (Book) -> Void,
-        container: DependencyContainer
+        player: AudioPlayer,
+        downloadManager: DownloadManager
     ) {
         self.series = series
         self.api = api
         self.onBookSelected = onBookSelected
-        self.container = container
-        
-        // Handle optional books array properly
+        self.player = player
+        self.downloadManager = downloadManager
+
         if let seriesBooks = series.books {
             self.books = seriesBooks.compactMap { api.converter.convertLibraryItemToBook($0) }
-        } else {
-            self.books = []
         }
+    }
+
+    /// Called from .task once the environment is available, replacing the
+    /// placeholder instances created in the view's init.
+    func updateDependencies(player: AudioPlayer, downloadManager: DownloadManager) {
+        self.player = player
+        self.downloadManager = downloadManager
     }
 }

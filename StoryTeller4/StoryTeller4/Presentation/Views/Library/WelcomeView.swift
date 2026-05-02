@@ -5,7 +5,14 @@ struct WelcomeView: View {
     let onComplete: () -> Void
     
     @State private var currentPage = 0
-    @State private var viewModel = DependencyContainer.shared.makeSettingsViewModel()
+
+    @State private var viewModel: SettingsViewModel
+
+    init(viewModel: SettingsViewModel, onComplete: @escaping () -> Void) {
+        self._viewModel = State(initialValue: viewModel)
+        self.onComplete = onComplete
+    }
+
     
     private let totalPages = 4 // Erhöht auf 4 Seiten
     

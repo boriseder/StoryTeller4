@@ -1,9 +1,12 @@
 import SwiftUI
 
 struct SettingsView: View {
-    // FIX: Initialize local @Observable viewModel with @State
-    @State private var viewModel = DependencyContainer.shared.makeSettingsViewModel()
+    @State private var viewModel: SettingsViewModel
     
+    init(viewModel: SettingsViewModel) {
+        self._viewModel = State(initialValue: viewModel)
+    }
+
     // FIX: Use @Environment(Type.self)
     @Environment(ThemeManager.self) var theme
 
@@ -95,9 +98,7 @@ struct SettingsView: View {
                 Label("Appearance", systemImage: "paintbrush")
             }
     }
-    
-    // ... [Other sections: playbackSection, librariesSection, etc. remain unchanged] ...
-    
+        
     private var playbackSection: some View {
         Section {
                 Toggle("Fullscreen-Player on Play", isOn: $openFullscreenPlayer)
