@@ -5,6 +5,9 @@ import Observation
 @Observable
 class PlayerStateManager {
     var mode: PlayerMode = .hidden
+    var sliderValue: Double = 0
+    var isEditingSlider: Bool = false
+    var showBookProgress: Bool = false // Hoisting this too so the user's preference doesn't reset!
     
     func showFullscreen() {
         mode = .fullscreen

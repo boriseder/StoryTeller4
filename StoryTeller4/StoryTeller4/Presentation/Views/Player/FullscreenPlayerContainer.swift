@@ -4,7 +4,9 @@ import SwiftUI
 struct FullscreenPlayerContainer<Content: View>: View {
     let content: Content
     let player: AudioPlayer
-    let playerStateManager: PlayerStateManager
+    
+    // 1. Changed to @Bindable to allow two-way bindings to the manager's properties
+    @Bindable var playerStateManager: PlayerStateManager
     let api: AudiobookshelfClient?
     
     @State private var dragOffset: CGFloat = 0
@@ -14,8 +16,7 @@ struct FullscreenPlayerContainer<Content: View>: View {
     @State private var activeJump: PlayerJumpOverlayView.JumpDirection? = nil
     @State private var jumpResetTask: Task<Void, Never>? = nil
     
-    // UX: Context (iPad)
-    @State private var showBookProgress = false
+    // 2. Removed local @State for sliderValue, isEditingSlider, and showBookProgress
     
     init(
         player: AudioPlayer,
@@ -153,7 +154,7 @@ struct FullscreenPlayerContainer<Content: View>: View {
         .zIndex(100)
     }
     
-    // MARK: - iPad Landscape Content (Complete Implementation)
+    // MARK: - iPad Landscape Content
     
     private func iPadLandscapePlayerContent(availableSize: CGSize) -> some View {
         HStack(spacing: 40) {
@@ -199,7 +200,7 @@ struct FullscreenPlayerContainer<Content: View>: View {
         .padding(.horizontal, 40)
     }
     
-    // MARK: - iPad Portrait Content (Complete Implementation)
+    // MARK: - iPad Portrait Content
     
     private func iPadPortraitPlayerContent(availableSize: CGSize) -> some View {
         VStack(spacing: 32) {
@@ -268,32 +269,31 @@ struct FullscreenPlayerContainer<Content: View>: View {
         }
     }
     
-    @State private var sliderValue: Double = 0
-    @State private var isEditingSlider = false
-    
     private var iPadProgressSection: some View {
         VStack(spacing: 8) {
             // UX: Explicit Label
             HStack {
-                Text(showBookProgress ? "Total Book Progress" : "Current Chapter Progress")
+                // 3. Updated to use playerStateManager
+                Text(playerStateManager.showBookProgress ? "Total Book Progress" : "Current Chapter Progress")
                     .font(.caption2)
                     .fontWeight(.bold)
                     .textCase(.uppercase)
-                    .foregroundColor(showBookProgress ? .purple : .secondary)
+                    .foregroundColor(playerStateManager.showBookProgress ? .purple : .secondary)
                 Spacer()
             }
             
             Slider(
-                value: $sliderValue,
+                // 4. Bound directly to the manager's state
+                value: $playerStateManager.sliderValue,
                 in: 0...max(progressDuration, 1),
                 onEditingChanged: { editing in
-                    isEditingSlider = editing
+                    playerStateManager.isEditingSlider = editing
                     if !editing {
                         // Correct seeking based on mode
-                        if showBookProgress {
-                             player.seek(to: sliderValue)
+                        if playerStateManager.showBookProgress {
+                             player.seek(to: playerStateManager.sliderValue)
                         } else {
-                            player.seek(to: sliderValue)
+                            player.seek(to: playerStateManager.sliderValue)
                         }
                         
                         let generator = UIImpactFeedbackGenerator(style: .light)
@@ -301,13 +301,13 @@ struct FullscreenPlayerContainer<Content: View>: View {
                     }
                 }
             )
-            .tint(showBookProgress ? .purple : .accentColor)
+            .tint(playerStateManager.showBookProgress ? .purple : .accentColor)
             .onAppear {
-                sliderValue = progressCurrentTime
+                playerStateManager.sliderValue = progressCurrentTime
             }
             .onChange(of: progressCurrentTime) { _, newTime in
-                if !isEditingSlider {
-                    sliderValue = newTime
+                if !playerStateManager.isEditingSlider {
+                    playerStateManager.sliderValue = newTime
                 }
             }
             
@@ -321,19 +321,19 @@ struct FullscreenPlayerContainer<Content: View>: View {
                 
                 Button(action: {
                     withAnimation {
-                        showBookProgress.toggle()
+                        playerStateManager.showBookProgress.toggle()
                     }
                 }) {
                      HStack(spacing: 4) {
-                        Image(systemName: showBookProgress ? "book.fill" : "doc.text.fill")
+                        Image(systemName: playerStateManager.showBookProgress ? "book.fill" : "doc.text.fill")
                             .font(.caption2)
-                        Text(showBookProgress ? "Book" : "Chapter")
+                        Text(playerStateManager.showBookProgress ? "Book" : "Chapter")
                             .font(.caption2)
                     }
-                    .foregroundColor(showBookProgress ? .purple : .secondary)
+                    .foregroundColor(playerStateManager.showBookProgress ? .purple : .secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background((showBookProgress ? Color.purple : Color.secondary).opacity(0.1))
+                    .background((playerStateManager.showBookProgress ? Color.purple : Color.secondary).opacity(0.1))
                     .clipShape(Capsule())
                 }
                 
@@ -349,11 +349,11 @@ struct FullscreenPlayerContainer<Content: View>: View {
     }
     
     private var progressCurrentTime: Double {
-        showBookProgress ? player.absoluteCurrentTime : player.relativeCurrentTime
+        playerStateManager.showBookProgress ? player.absoluteCurrentTime : player.relativeCurrentTime
     }
     
     private var progressDuration: Double {
-        showBookProgress ? player.totalBookDuration : player.chapterDuration
+        playerStateManager.showBookProgress ? player.totalBookDuration : player.chapterDuration
     }
     
     private var iPadMainControls: some View {
