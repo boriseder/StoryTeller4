@@ -26,14 +26,8 @@ struct PlayerView: View {
     var body: some View {
         @Bindable var vm = viewModel
         
-        GeometryReader { geometry in
-            if DeviceType.current == .iPad && geometry.size.width > geometry.size.height {
-                iPadLandscapeLayout(geometry: geometry)
-            } else {
-                standardLayout(geometry: geometry)
-            }
-        }
-        .background(DSColor.background)
+        standardLayout
+            .background(DSColor.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $vm.showingChaptersList) {
@@ -97,50 +91,22 @@ struct PlayerView: View {
         }
     }
     
-    // MARK: - iPad Landscape Layout
-    
-    private func iPadLandscapeLayout(geometry: GeometryProxy) -> some View {
-        HStack(spacing: 40) {
-            VStack {
-                Spacer()
-                coverArtView.frame(maxWidth: geometry.size.width * 0.3)
-                Spacer()
-            }
-            VStack(spacing: 32) {
-                Spacer()
-                trackInfoSection
-                progressSection
-                mainControlsSection
-                secondaryControlsSection
-                Spacer()
-            }
-            .frame(maxWidth: geometry.size.width * 0.5)
-            .padding(.trailing, 40)
-        }
-        .padding(.horizontal, 40)
-    }
-    
-    // MARK: - Standard Layout
-    
-    private func standardLayout(geometry: GeometryProxy) -> some View {
-        // FIX: Proper layout with safe area consideration
+    // MARK: - Layout
+
+    private var standardLayout: some View {
         VStack(spacing: 0) {
-            // Cover art takes available space
             coverArtSection
-                .frame(maxHeight: geometry.size.height * 0.45)
             
-            // Controls section
             ScrollView {
-                VStack(spacing: DeviceType.current == .iPad ? 24 : 16) {
+                VStack(spacing: 16) {
                     trackInfoSection
                     progressSection
                     mainControlsSection
                     secondaryControlsSection
                 }
-                .padding(.horizontal, DeviceType.current == .iPad ? 40 : DSLayout.screenPadding)
-                .padding(.bottom, 20) // FIX: Add bottom padding for safe area
+                .padding(.horizontal, DSLayout.screenPadding)
+                .padding(.bottom, 20)
             }
-            .frame(maxHeight: geometry.size.height * 0.55)
         }
     }
     
@@ -152,7 +118,7 @@ struct PlayerView: View {
             coverArtView
             Spacer()
         }
-        .padding(.horizontal, DeviceType.current == .iPad ? 60 : DSLayout.screenPadding)
+        .padding(.horizontal, DSLayout.screenPadding)
     }
     
     private var coverArtView: some View {
@@ -161,7 +127,7 @@ struct PlayerView: View {
                 if let book = viewModel.player.book {
                     BookCoverView.square(
                         book: book,
-                        size: DeviceType.current == .iPad ? DSLayout.fullCover : min(DSLayout.fullCover, 320),
+                        size: min(DSLayout.fullCover, 320),
                         api: viewModel.api,
                         downloadManager: viewModel.player.downloadManagerReference
                     )
@@ -204,13 +170,13 @@ struct PlayerView: View {
                 }
                 
                 Text(viewModel.player.book?.title ?? "No book selected")
-                    .font(DeviceType.current == .iPad ? .body : .subheadline)
+                    .font(.subheadline)
                     .fontWeight(.semibold)
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
                 
                 Text(viewModel.player.book?.author ?? "")
-                    .font(DeviceType.current == .iPad ? .body : .subheadline)
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
@@ -309,10 +275,9 @@ struct PlayerView: View {
     // MARK: - Main Controls Section
     
     private var mainControlsSection: some View {
-        // FIX: Adjusted spacing for iPhone
-        let controlSpacing: CGFloat = DeviceType.current == .iPad ? 48 : 24
-        let buttonSize: CGFloat = DeviceType.current == .iPad ? 72 : 64
-        let iconSize: Font = DeviceType.current == .iPad ? .largeTitle : .title2
+        let controlSpacing: CGFloat = 24
+        let buttonSize: CGFloat = 64
+        let iconSize: Font = .title2
         
         return HStack(spacing: controlSpacing) {
             Button(action: {
@@ -387,13 +352,11 @@ struct PlayerView: View {
     // MARK: - Secondary Controls Section
     
     private var secondaryControlsSection: some View {
-        // FIX: Adjusted spacing for iPhone
-        let controlSpacing: CGFloat = DeviceType.current == .iPad ? 56 : 32
-        
-        return HStack(spacing: controlSpacing) {
+        return HStack(spacing: 32) {
             speedButton
             chaptersButton
             bookmarkButton
+            airPlayButton
             moreMenuButton
         }
         .foregroundColor(.primary)
@@ -411,10 +374,10 @@ struct PlayerView: View {
         }) {
             VStack(spacing: 4) {
                 Text("\(viewModel.player.playbackRate, specifier: "%.1f")x")
-                    .font(DeviceType.current == .iPad ? .body : .caption)
+                    .font(.caption)
                     .fontWeight(.medium)
                 Text("Speed")
-                    .font(DeviceType.current == .iPad ? .caption : .caption2)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
         }
@@ -429,9 +392,9 @@ struct PlayerView: View {
         }) {
             VStack(spacing: 4) {
                 Image(systemName: "list.bullet")
-                    .font(DeviceType.current == .iPad ? .title2 : .body)
+                    .font(.body)
                 Text("Chapters")
-                    .font(DeviceType.current == .iPad ? .caption : .caption2)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
         }
@@ -447,9 +410,9 @@ struct PlayerView: View {
         }) {
             VStack(spacing: 4) {
                 Image(systemName: "bookmark.fill")
-                    .font(DeviceType.current == .iPad ? .title2 : .body)
+                    .font(.body)
                 Text("Bookmark")
-                    .font(DeviceType.current == .iPad ? .caption : .caption2)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
         }
@@ -458,12 +421,6 @@ struct PlayerView: View {
     
     private var moreMenuButton: some View {
         Menu {
-            Button(action: {}) {
-                Label("Audio Output", systemImage: "speaker.fill")
-            }
-
-            Divider()
-            
             Button(action: {
                 viewModel.showingSleepTimer = true
             }) {
@@ -472,11 +429,30 @@ struct PlayerView: View {
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: "ellipsis")
-                    .font(DeviceType.current == .iPad ? .title2 : .body)
+                    .font(.body)
                 Text("More")
-                    .font(DeviceType.current == .iPad ? .caption : .caption2)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
+        }
+    }
+    
+    private var airPlayButton: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                // AVRoutePickerView is the only reliable way to trigger the AirPlay picker.
+                // We size it to match the icon and let it receive touches transparently.
+                AVRoutePickerViewWrapper()
+                    .frame(width: 44, height: 28)
+                
+                // Visual label sits on top but ignores hits so the picker still fires
+                Image(systemName: "airplayaudio")
+                    .font(.body)
+                    .allowsHitTesting(false)
+            }
+            Text("AirPlay")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
     

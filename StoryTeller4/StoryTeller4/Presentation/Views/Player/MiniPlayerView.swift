@@ -9,12 +9,10 @@ struct MiniPlayerView: View {
     
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging = false
-
+    
     private let progressBarHeight: CGFloat = 6
-
-    private var miniPlayerHeight: CGFloat {
-        DeviceType.current == .iPad ? 80 : 54
-    }
+    
+    private let miniPlayerHeight: CGFloat = 54
     
     var body: some View {
         VStack(spacing: 0) {
@@ -30,7 +28,7 @@ struct MiniPlayerView: View {
                         .frame(height: miniPlayerHeight)
                 }
                 .background {
-                    RoundedRectangle(cornerRadius: 0)
+                    Rectangle()
                         .fill(.regularMaterial)
                         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: -2)
                 }
@@ -59,7 +57,7 @@ struct MiniPlayerView: View {
                             .font(.system(size: 11))
                             .lineLimit(1)
                             .foregroundColor(.primary)
-                    
+                        
                         Text(book.title)
                             .font(.system(size: 14, weight: .semibold))
                             .lineLimit(1)
@@ -69,10 +67,10 @@ struct MiniPlayerView: View {
                             .font(.system(size: 14, weight: .semibold))
                             .lineLimit(1)
                             .foregroundColor(.primary)
-
+                        
                     }
-
-
+                    
+                    
                     Text(book.author ?? "Unbekannter Autor")
                         .font(.system(size: 12))
                         .lineLimit(1)
@@ -116,10 +114,10 @@ struct MiniPlayerView: View {
         }
         .frame(height: progressBarHeight)
     }
-
+    
     
     private func bookCoverSection(book: Book) -> some View {
-        let coverSize: CGFloat = DeviceType.current == .iPad ? 64 : 48
+        let coverSize: CGFloat = 48
         
         return Group {
             if let api = api {
@@ -144,59 +142,48 @@ struct MiniPlayerView: View {
     }
     
     private var playbackControls: some View {
-            let buttonSpacing: CGFloat = DeviceType.current == .iPad ? 20 : 16
-            let playButtonSize: CGFloat = DeviceType.current == .iPad ? 48 : 40
-            let iconSize: CGFloat = DeviceType.current == .iPad ? 20 : 16
+        HStack(spacing: 16) {
+            Button(action: {
+                player.previousChapter()
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+            }) {
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.primary)
+            }
+            .disabled(player.currentChapterIndex == 0)
             
-            return HStack(spacing: buttonSpacing) {
-                Button(action: {
-                    player.previousChapter()
+            Button(action: {
+                player.togglePlayPause()
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+            }) {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 40, height: 40)
                     
-                    // Haptic feedback
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                }) {
-                    Image(systemName: "backward.end.fill")
-                        .font(.system(size: iconSize))
-                        .foregroundColor(.primary)
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
                 }
-                .disabled(player.currentChapterIndex == 0)
-                
-                Button(action: {
-                    player.togglePlayPause()
-                    
-                    // Haptic feedback
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: playButtonSize, height: playButtonSize)
-                        
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: iconSize))
-                            .foregroundColor(.white)
-                    }
-                }
-                
-                Button(action: {
-                    player.nextChapter()
-                    
-                    // Haptic feedback
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                }) {
-                    Image(systemName: "forward.end.fill")
-                        .font(.system(size: iconSize))
-                        .foregroundColor(.primary)
-                }
-                .disabled(player.book == nil ||
-                         player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1)
             }
-            // FIX: Ersetze highPriorityGesture durch einen leeren onTapGesture.
-            // Dies "schluckt" das Event lokal, ohne mit den internen Button-Gesten in einen Timeout-Konflikt zu geraten.
-            .onTapGesture {
-                // Do nothing - prevents propagation to parent
+            
+            Button(action: {
+                player.nextChapter()
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+            }) {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.primary)
             }
-        }}
+            .disabled(player.book == nil ||
+                      player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1)
+        }
+        .onTapGesture {
+            // Prevents propagation to parent tap handler
+        }
+    }
+}
