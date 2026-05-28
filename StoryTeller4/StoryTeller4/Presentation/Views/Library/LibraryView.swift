@@ -35,8 +35,6 @@ struct LibraryView: View {
         }
         .navigationTitle(viewModel.libraryName)
         .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(.clear, for: .navigationBar)
         .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
         .searchable(
             text: $vm.filterState.searchText,

@@ -25,12 +25,9 @@ struct DownloadsView: View {
 
             contentView()
                 .transition(.opacity)
-
         }
         .navigationTitle("Downloaded")
         .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(.clear, for: .navigationBar)
         .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {

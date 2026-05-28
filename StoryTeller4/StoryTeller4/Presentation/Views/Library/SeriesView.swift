@@ -25,8 +25,6 @@ struct SeriesView: View {
         }
         .navigationTitle("Series")
         .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(.clear, for: .navigationBar)
         .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
         .searchable(text: $viewModel.filterState.searchText, prompt: "Serien durchsuchen...")
         .refreshable {

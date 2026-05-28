@@ -3,181 +3,193 @@ import SwiftUI
 struct SleepTimerView: View {
     @Environment(SleepTimerService.self) var sleepTimer
     @Environment(\.dismiss) private var dismiss
-    
+
+    private let durationOptions: [Int] = [5, 10, 15, 20, 30, 45, 60]
+
     var body: some View {
-        NavigationStack {
-            List {
-                if sleepTimer.isTimerActive {
-                    activeTimerSection
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.3))
+                .frame(width: 36, height: 4)
+                .padding(.top, 12)
+                .padding(.bottom, 20)
+
+            if sleepTimer.isTimerActive {
+                activeTimerBanner
+                    .padding(.horizontal, DSLayout.screenPadding)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            HStack {
+                Text("Sleep Timer")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .textCase(.uppercase)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, DSLayout.screenPadding)
+            .padding(.bottom, 10)
+
+            HStack(spacing: 10) {
+                SmartTimerButton(
+                    label: "End of Chapter",
+                    icon: "text.book.closed",
+                    isSelected: sleepTimer.currentMode == .endOfChapter
+                ) {
+                    sleepTimer.startTimer(mode: .endOfChapter)
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    dismiss()
                 }
-                
-                Section {
-                    Button(action: {
-                        sleepTimer.startTimer(mode: .endOfChapter)
-                        
-                        // Haptic feedback
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                        
-                        dismiss()
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("End of Chapter")
-                                    .foregroundColor(.primary)
-                                Text("Stops when current chapter finishes")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            if sleepTimer.currentMode == .endOfChapter {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                    }
-                    
-                    Button(action: {
-                        sleepTimer.startTimer(mode: .endOfBook)
-                        
-                        // Haptic feedback
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                        
-                        dismiss()
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("End of Book")
-                                    .foregroundColor(.primary)
-                                Text("Stops when book finishes")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            if sleepTimer.currentMode == .endOfBook {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Smart Timer")
-                } footer: {
-                    Text("Timer will pause playback automatically")
-                        .font(.caption)
-                }
-                
-                Section {
-                    ForEach(sleepTimer.timerOptionsArray, id: \.self) { minutes in
-                        Button(action: {
-                            sleepTimer.startTimer(mode: .duration(minutes: minutes))
-                            
-                            // Haptic feedback
-                            let generator = UINotificationFeedbackGenerator()
-                            generator.notificationOccurred(.success)
-                            
-                            dismiss()
-                        }) {
-                            HStack {
-                                Text("\(minutes) Minutes")
-                                    .foregroundColor(.primary)
-                                
-                                Spacer()
-                                
-                                if case .duration(let m) = sleepTimer.currentMode, m == minutes {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Duration")
-                } footer: {
-                    Text("Choose a time limit for playback")
-                        .font(.caption)
+                SmartTimerButton(
+                    label: "End of Book",
+                    icon: "books.vertical",
+                    isSelected: sleepTimer.currentMode == .endOfBook
+                ) {
+                    sleepTimer.startTimer(mode: .endOfBook)
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    dismiss()
                 }
             }
-            .navigationTitle("Sleep Timer")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+            .padding(.horizontal, DSLayout.screenPadding)
+            .padding(.bottom, 10)
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                spacing: 10
+            ) {
+                ForEach(durationOptions, id: \.self) { minutes in
+                    let isSelected: Bool = {
+                        if case .duration(let m) = sleepTimer.currentMode { return m == minutes }
+                        return false
+                    }()
+                    Button(action: {
+                        sleepTimer.startTimer(mode: .duration(minutes: minutes))
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
                         dismiss()
+                    }) {
+                        Text("\(minutes)m")
+                            .font(.subheadline)
+                            .fontWeight(isSelected ? .semibold : .regular)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(isSelected
+                                          ? Color.accentColor
+                                          : Color(.secondarySystemGroupedBackground))
+                            )
+                            .foregroundColor(isSelected ? .white : .primary)
                     }
+                    .buttonStyle(ScaleButtonStyle())
                 }
             }
+            .padding(.horizontal, DSLayout.screenPadding)
+
+            Spacer(minLength: 28)
+        }
+        .background(Color(.systemGroupedBackground))
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: sleepTimer.isTimerActive)
+        .presentationDetents([.height(sleepTimer.isTimerActive ? 360 : 280)])
+        .presentationDragIndicator(.hidden)
+    }
+
+    // MARK: - Active Timer Banner
+
+    private var activeTimerBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "moon.fill")
+                .font(.body)
+                .foregroundColor(.accentColor)
+                .symbolEffect(.pulse, options: .repeating)
+
+            VStack(alignment: .leading, spacing: 2) {
+                // Fixed: was "Stops in end of chapter" (grammatically broken).
+                // Now correctly reads "Stops at end of chapter" or "Stops in 12:34".
+                Text(stopsBannerLabel)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Text(modeDescription)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: {
+                Task {
+                    await sleepTimer.cancelTimer()
+                    // Cancellation is a neutral/warning action, not a success.
+                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                }
+            }) {
+                Text("Cancel")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.red.opacity(0.1))
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.accentColor.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.accentColor.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    // "Stops in 12:34" for countdown modes,
+    // "Stops at end of chapter / end of book" for content-boundary modes.
+    private var stopsBannerLabel: String {
+        switch sleepTimer.currentMode {
+        case .endOfChapter: return "Stops at end of chapter"
+        case .endOfBook:    return "Stops at end of book"
+        default:            return "Stops in \(TimeFormatter.formatTime(sleepTimer.remainingTime))"
         }
     }
-    
-    // MARK: - Active Timer Section
-    
-    private var activeTimerSection: some View {
-        Section {
-            HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.1))
-                        .frame(width: 50, height: 50)
-                    
-                    Image(systemName: "moon.fill")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                        .symbolEffect(.pulse, options: .repeating)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Timer Active")
-                        .font(.headline)
-                    
-                    HStack(spacing: 4) {
-                        Text("Stops in")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        
-                        Text(TimeFormatter.formatTime(sleepTimer.remainingTime))
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.accentColor)
-                            .monospacedDigit()
-                    }
-                    
-                    if case .endOfChapter = sleepTimer.currentMode {
-                        Text("At end of chapter")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else if case .endOfBook = sleepTimer.currentMode {
-                        Text("At end of book")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                Spacer()
-                
-                Button(role: .destructive, action: {
-                    Task {
-                        await sleepTimer.cancelTimer()
-                        
-                        // Haptic feedback
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.warning)
-                    }
-                }) {
-                    Text("Cancel")
-                        .fontWeight(.medium)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-            }
-            .padding(.vertical, 8)
-        } header: {
-            Text("Active Timer")
+
+    // Secondary line shown below the main label — empty for countdown modes
+    // since the time is already in the headline.
+    private var modeDescription: String {
+        switch sleepTimer.currentMode {
+        case .endOfChapter, .endOfBook: return ""
+        default: return ""
         }
+    }
+}
+
+// MARK: - Smart Timer Button
+
+private struct SmartTimerButton: View {
+    let label: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.subheadline)
+                Text(label)
+                    .font(.subheadline)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color.accentColor : Color(.secondarySystemGroupedBackground))
+            )
+            .foregroundColor(isSelected ? .white : .primary)
+        }
+        .buttonStyle(ScaleButtonStyle())
     }
 }

@@ -2,11 +2,12 @@ import SwiftUI
 import Combine
 import AVFoundation
 
+
 struct ContentView: View {
     @Environment(AppStateManager.self) private var appState
     @Environment(ThemeManager.self) private var theme
     @Environment(DependencyContainer.self) private var dependencies
-
+    
     // MARK: - ViewModels
     //
     // These are nil until setupApp() has finished configuring the API client.
@@ -19,96 +20,35 @@ struct ContentView: View {
     @State private var seriesViewModel: SeriesViewModel?
     @State private var authorsViewModel: AuthorsViewModel?
     @State private var downloadsViewModel: DownloadsViewModel?
-
+    
     @State private var selectedTab: TabIndex = .home
     @State private var bookCount = 0
     @State private var cancellables = Set<AnyCancellable>()
-
+    
     private var player: AudioPlayer { dependencies.player }
     private var downloadManager: DownloadManager { dependencies.downloadManager }
     private var playerStateManager: PlayerStateManager { dependencies.playerStateManager }
-
+    
     @State var columnVisibility: NavigationSplitViewVisibility = .automatic
-
+    
     var body: some View {
-        @Bindable var appState = appState
-
-        ZStack {
-            Color.accent.ignoresSafeArea()
-
-            switch appState.loadingState {
-
-            case .initial, .loadingCredentials, .credentialsFoundValidating, .loadingData:
-                LoadingView(message: "Loading data...")
-                    .padding(.bottom, 80)
-
-            case .noCredentialsSaved, .authenticationError:
-                Color.clear
-                    .onAppear {
-                        if UserDefaults.standard.string(forKey: "stored_username") != nil {
-                            Task { setupApp() }
-                        } else if appState.isFirstLaunch {
-                            appState.showingWelcome = true
-                        }
-                    }
-
-            case .networkError(_):
-                if bookCount > 0 {
-                    mainContent
-                        .onAppear {
-                            appState.selectedTab = .downloads
-                            appState.loadingState = .ready
-                        }
-                } else {
-                    NoDownloadsView()
+        TabView {
+            Tab("Home", systemImage: "house") {
+                NavigationStack {
+                    ScrollTestView()
                 }
-
-            case .ready:
-                mainContent
-                    .ignoresSafeArea()
             }
-        }
-        .onAppear(perform: setupApp)
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            if UserDefaults.standard.bool(forKey: "auto_cache_cleanup") {
-                Task { await CoverCacheManager.shared.optimizeCache() }
+            Tab("Settings", systemImage: "gear") {
+                NavigationStack {
+                    ScrollTestView()
+                }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .init("ServerSettingsChanged"))) { _ in
-            appState.clearConnectionIssue()
-            Task { setupApp() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .init("ShowSettings"))) { _ in
-            appState.showingSettings = true
-        }
-        .onDisappear {
-            cancellables.removeAll()
-        }
-        .sheet(isPresented: $appState.showingSettings) {
-            NavigationStack {
-                SettingsView(viewModel: dependencies.makeSettingsViewModel())
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Done") {
-                                appState.showingSettings = false
-                            }
-                        }
-                    }
-            }
-        }
-        .sheet(isPresented: $appState.showingWelcome) {
-            WelcomeView(viewModel: dependencies.makeSettingsViewModel()) {
-            appState.showingWelcome = false
-            appState.isFirstLaunch = false
-            appState.showingSettings = false
-        }
-        .ignoresSafeArea()
         }
     }
+}
 
     // MARK: - Main Content
-
+/*
     @ViewBuilder
     private var mainContent: some View {
         // Guard ensures we never render tabs with nil ViewModels.
@@ -119,10 +59,11 @@ struct ContentView: View {
            let series = seriesViewModel,
            let authors = authorsViewModel,
            let downloads = downloadsViewModel {
-            FullscreenPlayerContainer(
+            PlayerContainer(
                 player: player,
                 playerStateManager: playerStateManager,
-                api: dependencies.apiClient
+                api: dependencies.apiClient,
+                sleepTimerService: dependencies.sleepTimerService
             ) {
                 if DeviceType.current == .iPad {
                     iPadLayout(
@@ -142,6 +83,11 @@ struct ContentView: View {
                     )
                 }
             }
+            // Preserve the modifier chain so .ignoresSafeArea() at the call site
+            // (case .ready: mainContent.ignoresSafeArea()) propagates through
+            // an unbroken chain into PlayerContainer's content — same role the
+            // original .environment(sleepTimerService) played before it moved
+            // to the initializer.
             .environment(dependencies.sleepTimerService)
         } else {
             // setupApp() is in progress — show a spinner rather than
@@ -279,7 +225,6 @@ struct ContentView: View {
     }
 
     // MARK: - iPhone Layout
-
     private func iPhoneLayout(
         home: HomeViewModel,
         library: LibraryViewModel,
@@ -290,41 +235,32 @@ struct ContentView: View {
         @Bindable var appState = appState
 
         return TabView(selection: $appState.selectedTab) {
-            NavigationStack {
-                HomeView(viewModel: home)
+            /*
+            Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
+                NavigationStack { HomeView(viewModel: home) }
             }
-            .tabItem { Image(systemName: "sharedwithyou"); Text("Explore") }
-            .tag(TabIndex.home)
+             */
+            Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
+                NavigationStack { ScrollTestView() }
+            }
 
-            NavigationStack {
-                LibraryView(viewModel: library, columnVisibility: $columnVisibility)
+            Tab("Library", systemImage: "books.vertical.fill", value: TabIndex.library) {
+                NavigationStack { LibraryView(viewModel: library, columnVisibility: $columnVisibility) }
             }
-            .tabItem { Image(systemName: "books.vertical.fill"); Text("Library") }
-            .tag(TabIndex.library)
-
-            NavigationStack {
-                SeriesView(viewModel: series)
+            Tab("Series", systemImage: "play.square.stack.fill", value: TabIndex.series) {
+                NavigationStack { SeriesView(viewModel: series) }
             }
-            .tabItem { Image(systemName: "play.square.stack.fill"); Text("Series") }
-            .tag(TabIndex.series)
-
-            NavigationStack {
-                AuthorsView(viewModel: authors)
+            Tab("Authors", systemImage: "person.2.fill", value: TabIndex.authors) {
+                NavigationStack { AuthorsView(viewModel: authors) }
             }
-            .tabItem { Image(systemName: "person.2"); Text("Authors") }
-            .tag(TabIndex.authors)
-
-            NavigationStack {
-                DownloadsView(viewModel: downloads)
+            Tab("Downloads", systemImage: "arrow.down.circle.fill", value: TabIndex.downloads) {
+                NavigationStack { DownloadsView(viewModel: downloads) }
             }
-            .tabItem { Image(systemName: "arrow.down.circle.fill"); Text("Downloads") }
-            .badge(downloadManager.downloadedBooks.count)
-            .tag(TabIndex.downloads)
         }
         .accentColor(theme.accent)
         .id(theme.accent)
     }
-
+    
     // MARK: - iPad Selected Tab
 
     @ViewBuilder
@@ -600,7 +536,7 @@ struct SeriesSidebarSort: View {
         }
     }
 }
-
+*/
 // MARK: - Connection Test Result
 
 enum ConnectionTestResult: Equatable {

@@ -21,7 +21,10 @@ struct BookCoverView: View {
         self.book = book
         self.api = api
         self.downloadManager = downloadManager
-        self.size = size
+        
+        // FIX: Clamp the dimensions so they can never be negative
+        self.size = CGSize(width: max(0, size.width), height: max(0, size.height))
+        
         self.showLoadingProgress = showLoadingProgress
         
         // FIX: Initialize with State(initialValue:)

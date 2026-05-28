@@ -17,22 +17,16 @@ struct HomeView: View {
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
  
     var body: some View {
-        ZStack {
-            if theme.backgroundStyle == .dynamic {
-                DynamicBackground()
-                    .transition(.opacity)
-                    .zIndex(0)
-            }
- 
-            contentView
-                .transition(.opacity)
-        }
-        .navigationTitle("Personalized")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(.clear, for: .navigationBar)
-        .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
-        .toolbar {
+        contentView
+            .transition(.opacity)
+            .navigationTitle("Explore")
+            .navigationBarTitleDisplayMode(.large)
+            
+            // 3. HIDES THE TOP BAR MATERIAL (Crucial because of the title!)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
+            
+            .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showBookmarks.toggle() }) {
                     Image(systemName: "bookmark.fill")
@@ -86,10 +80,10 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: DSLayout.contentGap) {
                     OfflineBanner()
- 
+
                     homeHeaderView
                         .padding(.vertical, DSLayout.elementGap)
- 
+
                     ForEach(Array(viewModel.personalizedSections.enumerated()), id: \.element.id) { index, section in
                         PersonalizedSectionView(
                             section: section,
@@ -113,12 +107,14 @@ struct HomeView: View {
                             }
                         )
                     }
+                    
+                    Spacer()
+                    .frame(height: 120)
                 }
-                Spacer()
-                    .frame(height: DSLayout.miniPlayerHeight)
+                .padding(.horizontal, DSLayout.screenPadding)  // ✅ padding on content, not scroll view
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, DSLayout.screenPadding)
+            .ignoresSafeArea(edges: .bottom)
         }
         .transition(.opacity)
         .onAppear {
@@ -309,6 +305,7 @@ struct PersonalizedSectionView: View {
         }
     }
 }
+
 // MARK: - Series Card View
 struct SeriesCardView: View {
     let entity: PersonalizedEntity

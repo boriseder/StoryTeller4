@@ -9,183 +9,128 @@ enum ChapterViewTab {
 
 struct ChaptersListView: View {
     let player: AudioPlayer
+    var initialTab: ChapterViewTab = .chapters
+
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var selectedTab: ChapterViewTab = .chapters
-    @State private var chapterVMs: [ChapterStateViewModel] = []
-    @State private var updateTimer: Timer?
-    @State private var scrollTarget: Int?
     @State private var bookmarkViewModel: BookmarkViewModel
-    
-    // Filter bookmarks for current book only
+    @State private var showingAddBookmark = false
+
+    // Derived synchronously from player — no Timer, no manual refresh.
+    // Recomputed automatically whenever player.currentChapterIndex,
+    // player.isPlaying, or player.currentTime changes thanks to @Observable.
+    private var chapterVMs: [ChapterStateViewModel] {
+        guard let book = player.book else { return [] }
+        return book.chapters.enumerated().map { index, chapter in
+            ChapterStateViewModel(index: index, chapter: chapter, player: player)
+        }
+    }
+
     private var currentBookBookmarks: [EnrichedBookmark] {
         guard let bookId = player.book?.id else { return [] }
-        
-        let bookBookmarks = bookmarkViewModel.allBookmarks.filter { enriched in
-            enriched.bookmark.libraryItemId == bookId
-        }
-        
-        return bookBookmarks.sorted { first, second in
-            first.bookmark.time < second.bookmark.time
-        }
+        return bookmarkViewModel.allBookmarks
+            .filter { $0.bookmark.libraryItemId == bookId }
+            .sorted { $0.bookmark.time < $1.bookmark.time }
     }
-    
-    init(player: AudioPlayer) {
+
+    init(player: AudioPlayer, initialTab: ChapterViewTab = .chapters) {
         self.player = player
+        self.initialTab = initialTab
         _bookmarkViewModel = State(initialValue: BookmarkViewModel())
     }
-    
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Header
-                if let book = player.book {
-                    headerSection(book: book)
-                        .padding(.horizontal, DSLayout.screenPadding)
-                        .padding(.top, DSLayout.elementPadding)
-                        .padding(.bottom, DSLayout.tightGap)
-                }
-                
-                // Segmented Control
-                Picker("View", selection: $selectedTab) {
-                    Text("Chapters").tag(ChapterViewTab.chapters)
-                    Text("Bookmarks").tag(ChapterViewTab.bookmarks)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DSLayout.screenPadding)
-                .padding(.bottom, DSLayout.contentGap)
-                .onChange(of: selectedTab) { _, _ in
-                    // Haptic feedback on tab change
-                    let generator = UISelectionFeedbackGenerator()
-                    generator.selectionChanged()
-                }
-                
-                // Content
-                if selectedTab == .chapters {
-                    chaptersListView
-                } else {
-                    bookmarksListView
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.down")
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    Text(selectedTab == .chapters ? "Chapters" : "Bookmarks")
-                        .font(DSText.emphasized)
-                        .foregroundColor(.primary)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: DSLayout.icon))
-                    }
-                }
-            }
-            .onAppear {
-                updateChapterViewModels()
-                startPeriodicUpdates()
-            }
-            .onDisappear {
-                stopPeriodicUpdates()
-            }
-            .alert("Edit Bookmark", isPresented: Binding(
-                get: { bookmarkViewModel.editingBookmark != nil },
-                set: { if !$0 { bookmarkViewModel.cancelEditing() } }
-            )) {
-                TextField("Bookmark name", text: Bindable(bookmarkViewModel).editedBookmarkTitle)
-                    .autocorrectionDisabled()
-                
-                Button("Cancel", role: .cancel) {
-                    bookmarkViewModel.cancelEditing()
-                }
-                
-                Button("Save") {
-                    bookmarkViewModel.saveEditedBookmark()
-                    
-                    // Haptic feedback
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
-                }
-                .disabled(bookmarkViewModel.editedBookmarkTitle.trimmingCharacters(in: .whitespaces).isEmpty)
-            } message: {
-                Text("Enter a new name for this bookmark")
+        VStack(spacing: 0) {
+            sheetHeader
+            segmentedControl
+            Divider()
+
+            if selectedTab == .chapters {
+                chaptersListView
+            } else {
+                bookmarksListView
             }
         }
-    }
-    
-    // MARK: - Header Section
-    
-    private func headerSection(book: Book) -> some View {
-        VStack(spacing: DSLayout.contentGap) {
-            HStack(spacing: DSLayout.contentGap) {
-                BookCoverView.square(
-                    book: book,
-                    size: DSLayout.avatar,
-                    api: nil,
-                    downloadManager: player.downloadManagerReference
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-                
-                VStack(alignment: .leading, spacing: DSLayout.elementGap) {
-                    Text(book.title)
-                        .font(DSText.emphasized)
-                        .fontWeight(.semibold)
-                        .lineLimit(2)
-                    
-                    if let author = book.author {
-                        Text(author)
-                            .font(DSText.detail)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                    
-                    if selectedTab == .chapters {
-                        HStack {
-                            Image(systemName: "list.number")
-                                .font(DSText.button)
-                                .foregroundColor(.secondary)
-                            Text("\(book.chapters.count) chapters")
-                                .font(DSText.detail)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        HStack {
-                            Image(systemName: "waveform")
-                                .font(DSText.button)
-                                .foregroundColor(.secondary)
-                            Text("Current chapter \(player.currentChapterIndex + 1)")
-                                .font(DSText.detail)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        HStack {
-                            Image(systemName: "bookmark.fill")
-                                .font(DSText.button)
-                                .foregroundColor(.secondary)
-                            Text("\(currentBookBookmarks.count) bookmarks")
-                                .font(DSText.detail)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+        .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $showingAddBookmark) {
+            BookmarkSheet(player: player, isPresented: $showingAddBookmark)
+                .onDisappear {
+                    Task { await bookmarkViewModel.refresh() }
                 }
-            }
         }
-        .padding(DSLayout.contentPadding)
+        .onAppear {
+            selectedTab = initialTab
+        }
+        .alert("Edit Bookmark", isPresented: Binding(
+            get: { bookmarkViewModel.editingBookmark != nil },
+            set: { if !$0 { bookmarkViewModel.cancelEditing() } }
+        )) {
+            TextField("Bookmark name", text: Bindable(bookmarkViewModel).editedBookmarkTitle)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) { bookmarkViewModel.cancelEditing() }
+            Button("Save") {
+                bookmarkViewModel.saveEditedBookmark()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+            .disabled(bookmarkViewModel.editedBookmarkTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+        } message: {
+            Text("Enter a new name for this bookmark")
+        }
     }
-    
-    // MARK: - Chapters List View
-    
+
+    // MARK: - Sheet Header
+
+    private var sheetHeader: some View {
+        HStack {
+            Text(selectedTab == .chapters ? "Chapters" : "Bookmarks")
+                .font(DSText.emphasized)
+                .foregroundColor(.primary)
+
+            Spacer()
+
+            if selectedTab == .bookmarks {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showingAddBookmark = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Color.accentColor, Color.accentColor.opacity(0.15))
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(Color.secondary, Color.secondary.opacity(0.2))
+            }
+            .padding(.leading, 8)
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTab)
+        .padding(.horizontal, DSLayout.screenPadding)
+        .padding(.top, 20)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: - Segmented Control
+
+    private var segmentedControl: some View {
+        Picker("View", selection: $selectedTab) {
+            Text("Chapters").tag(ChapterViewTab.chapters)
+            Text("Bookmarks").tag(ChapterViewTab.bookmarks)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, DSLayout.screenPadding)
+        .padding(.bottom, 12)
+        .onChange(of: selectedTab) { _, _ in
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+    }
+
+    // MARK: - Chapters List
+
     private var chaptersListView: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -193,29 +138,29 @@ struct ChaptersListView: View {
                     ForEach(chapterVMs) { chapterVM in
                         ChapterCardView(
                             viewModel: chapterVM,
-                            onTap: {
-                                handleChapterTap(index: chapterVM.id)
-                            }
+                            onTap: { handleChapterTap(index: chapterVM.id) }
                         )
                         .id(chapterVM.id)
                     }
                 }
                 .padding(.horizontal, DSLayout.screenPadding)
-                .padding(.bottom, DSLayout.screenPadding)
+                .padding(.vertical, DSLayout.screenPadding)
             }
-            .onAppear {
-                scrollTarget = player.currentChapterIndex
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(player.currentChapterIndex, anchor: .center)
-                    }
+            // Scroll to the current chapter whenever this tab appears or the
+            // current chapter changes. .task(id:) cancels and re-runs automatically.
+            .task(id: player.currentChapterIndex) {
+                // One async yield lets the scroll view finish its first layout
+                // pass before we ask it to scroll — no hardcoded delay needed.
+                await Task.yield()
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo(player.currentChapterIndex, anchor: .center)
                 }
             }
         }
     }
-    
-    // MARK: - Bookmarks List View
-    
+
+    // MARK: - Bookmarks List
+
     private var bookmarksListView: some View {
         ScrollView {
             if currentBookBookmarks.isEmpty {
@@ -223,15 +168,27 @@ struct ChaptersListView: View {
                     Image(systemName: "bookmark.slash")
                         .font(.system(size: 48))
                         .foregroundColor(.secondary)
-                    
                     Text("No bookmarks yet")
                         .font(DSText.emphasized)
                         .foregroundColor(.secondary)
-                    
-                    Text("Add bookmarks from the player controls")
+                    Text("Tap + to bookmark your current position")
                         .font(DSText.detail)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showingAddBookmark = true
+                    }) {
+                        Label("Add Bookmark", systemImage: "plus")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 60)
@@ -242,25 +199,13 @@ struct ChaptersListView: View {
                             enriched: enriched,
                             showBookInfo: false,
                             onTap: {
-                                player.jumpToBookmark(enriched.bookmark)
-                                
-                                // Haptic feedback
-                                let generator = UIImpactFeedbackGenerator(style: .medium)
-                                generator.impactOccurred()
-                                
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    dismiss()
-                                }
+                                handleBookmarkTap(enriched)
                             },
-                            onEdit: {
-                                bookmarkViewModel.startEditingBookmark(enriched)
-                            },
+                            onEdit: { bookmarkViewModel.startEditingBookmark(enriched) },
                             onDelete: {
                                 bookmarkViewModel.deleteBookmark(enriched)
-                                
-                                // Haptic feedback
-                                let generator = UINotificationFeedbackGenerator()
-                                generator.notificationOccurred(.success)
+                                // Deletion is a destructive action — .warning, not .success
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
                             }
                         )
                     }
@@ -269,72 +214,125 @@ struct ChaptersListView: View {
                 .padding(.bottom, DSLayout.screenPadding)
             }
         }
-        .refreshable {
-            await bookmarkViewModel.refresh()
-        }
+        .refreshable { await bookmarkViewModel.refresh() }
     }
-    
-    // MARK: - Chapter Actions
-    
-    private func updateChapterViewModels() {
-        guard let book = player.book else { return }
-        
-        let newVMs = book.chapters.enumerated().map { index, chapter in
-            ChapterStateViewModel(
-                index: index,
-                chapter: chapter,
-                player: player
-            )
-        }
-        
-        if chapterVMs != newVMs {
-            chapterVMs = newVMs
-        }
-    }
-    
-    private func startPeriodicUpdates() {
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                updateChapterViewModels()
-            }
-        }
-    }
-    
-    private func stopPeriodicUpdates() {
-        updateTimer?.invalidate()
-        updateTimer = nil
-    }
-    
+
+    // MARK: - Actions
+
     private func handleChapterTap(index: Int) {
         let wasPlaying = player.isPlaying
-        
-        withAnimation(.easeInOut(duration: 0.2)) {
-            scrollTarget = index
-        }
-        
         player.setCurrentChapter(index: index)
-        
-        // Haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        
-        if wasPlaying {
-            player.play()
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            dismiss()
-        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if wasPlaying { player.play() }
+        // Dismiss immediately — no arbitrary delay.
+        // The chapter switch is synchronous; the sheet animation handles the rest.
+        dismiss()
+    }
+
+    private func handleBookmarkTap(_ enriched: EnrichedBookmark) {
+        player.jumpToBookmark(enriched.bookmark)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        dismiss()
     }
 }
 
-// MARK: - Reusable Chapter List Component
+// MARK: - Chapter Card View
 
-/// Reusable chapter list component for static chapter display (e.g., BookDetailView)
+struct ChapterCardView: View {
+    let viewModel: ChapterStateViewModel
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: DSLayout.contentGap) {
+                ZStack {
+                    Circle()
+                        .fill(viewModel.isCurrent ? Color.accentColor : Color.secondary.opacity(0.15))
+                        .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
+
+                    if viewModel.isCurrent && viewModel.isPlaying {
+                        Image(systemName: "waveform")
+                            .font(DSText.button)
+                            .foregroundColor(.white)
+                            .symbolEffect(.variableColor.iterative, options: .repeating, value: viewModel.isPlaying)
+                    } else {
+                        Text("\(viewModel.id + 1)")
+                            .font(DSText.button)
+                            .foregroundColor(viewModel.isCurrent ? .white : .secondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: DSLayout.elementGap) {
+                    Text(viewModel.chapter.title)
+                        .font(DSText.emphasized)
+                        .fontWeight(viewModel.isCurrent ? .semibold : .regular)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: DSLayout.contentGap) {
+                        if let start = viewModel.chapter.start {
+                            Text(TimeFormatter.formatTime(start))
+                                .font(DSText.metadata)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                        if let start = viewModel.chapter.start, let end = viewModel.chapter.end {
+                            Text("·")
+                                .foregroundColor(.secondary)
+                            Text(TimeFormatter.formatTime(end - start))
+                                .font(DSText.metadata)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+
+                    if viewModel.isCurrent && chapterProgress > 0 {
+                        ProgressView(value: chapterProgress)
+                            .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
+                            .scaleEffect(x: 1, y: 0.7, anchor: .center)
+                    }
+                }
+
+                if !viewModel.isCurrent {
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(Color.secondary.opacity(0.4))
+                }
+            }
+            .padding(DSLayout.elementPadding)
+            .background(
+                RoundedRectangle(cornerRadius: DSCorners.element)
+                    .fill(viewModel.isCurrent
+                          ? Color.accentColor.opacity(0.08)
+                          : Color(.secondarySystemGroupedBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DSCorners.element)
+                            .stroke(viewModel.isCurrent ? Color.accentColor.opacity(0.3) : Color.clear,
+                                    lineWidth: 1.5)
+                    )
+            )
+        }
+        .buttonStyle(ScaleButtonStyle())
+    }
+
+    private var chapterProgress: Double {
+        guard viewModel.isCurrent,
+              let start = viewModel.chapter.start,
+              let end = viewModel.chapter.end,
+              end > start else { return 0 }
+        let duration = end - start
+        let elapsed = max(0, min(viewModel.currentTime - start, duration))
+        return elapsed / duration
+    }
+}
+
+// MARK: - Reusable Static Components
+
 struct StaticChapterListView: View {
     let chapters: [Chapter]
     var showSectionTitle: Bool = true
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: DSLayout.elementGap) {
             if showSectionTitle {
@@ -342,24 +340,18 @@ struct StaticChapterListView: View {
                     .font(DSText.prominent)
                     .foregroundColor(DSColor.primary)
             }
-            
             ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
-                StaticChapterRow(
-                    index: index,
-                    chapter: chapter,
-                    isLast: index == chapters.count - 1
-                )
+                StaticChapterRow(index: index, chapter: chapter, isLast: index == chapters.count - 1)
             }
         }
     }
 }
 
-/// Interactive chapter list for BookDetailView with tap handlers
 struct InteractiveChapterListView: View {
     let chapters: [Chapter]
     let onChapterTap: (Int) -> Void
     var showSectionTitle: Bool = true
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: DSLayout.elementGap) {
             if showSectionTitle {
@@ -367,16 +359,9 @@ struct InteractiveChapterListView: View {
                     .font(DSText.prominent)
                     .foregroundColor(DSColor.primary)
             }
-            
             ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
-                Button(action: {
-                    onChapterTap(index)
-                }) {
-                    StaticChapterRow(
-                        index: index,
-                        chapter: chapter,
-                        isLast: index == chapters.count - 1
-                    )
+                Button(action: { onChapterTap(index) }) {
+                    StaticChapterRow(index: index, chapter: chapter, isLast: index == chapters.count - 1)
                 }
                 .buttonStyle(.plain)
             }
@@ -384,16 +369,14 @@ struct InteractiveChapterListView: View {
     }
 }
 
-/// Static chapter row for non-interactive display
 struct StaticChapterRow: View {
     let index: Int
     let chapter: Chapter
     let isLast: Bool
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DSLayout.contentGap) {
-                // Chapter Number Badge
                 ZStack {
                     Circle()
                         .fill(
@@ -404,18 +387,17 @@ struct StaticChapterRow: View {
                             )
                         )
                         .frame(width: 36, height: 36)
-                    
                     Text("\(index + 1)")
                         .font(DSText.metadata)
                         .foregroundColor(.secondary)
                 }
-                
+
                 VStack(alignment: .leading, spacing: DSLayout.tightGap) {
                     Text(chapter.title)
                         .font(DSText.body)
                         .foregroundColor(DSColor.primary)
                         .lineLimit(2)
-                    
+
                     HStack(spacing: DSLayout.contentGap) {
                         if let start = chapter.start {
                             HStack(spacing: DSLayout.tightGap) {
@@ -427,7 +409,6 @@ struct StaticChapterRow: View {
                             }
                             .foregroundColor(.secondary)
                         }
-                        
                         if let start = chapter.start, let end = chapter.end {
                             HStack(spacing: DSLayout.tightGap) {
                                 Image(systemName: "timer")
@@ -440,166 +421,14 @@ struct StaticChapterRow: View {
                         }
                     }
                 }
-                
+
                 Spacer()
             }
             .padding(.vertical, DSLayout.tightPadding)
-            
+
             if !isLast {
                 Divider()
             }
         }
-    }
-}
-
-// MARK: - Chapter Card View (Interactive)
-
-struct ChapterCardView: View {
-    let viewModel: ChapterStateViewModel
-    let onTap: () -> Void
-    
-    @State private var isPressed = false
-            
-    var body: some View {
-        HStack(spacing: DSLayout.contentGap) {
-            ZStack {
-                Circle()
-                    .fill(
-                        viewModel.isCurrent ?
-                        LinearGradient(
-                            colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ) :
-                        LinearGradient(
-                            colors: [Color.secondary.opacity(0.2), Color.secondary.opacity(0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
-                
-                if viewModel.isCurrent && viewModel.isPlaying {
-                    Image(systemName: "waveform")
-                        .font(DSText.button)
-                        .foregroundColor(.white)
-                        .symbolEffect(.variableColor.iterative, options: .repeating, value: viewModel.isPlaying)
-                } else {
-                    Text("\(viewModel.id + 1)")
-                        .font(DSText.button)
-                        .foregroundColor(viewModel.isCurrent ? .white : .secondary)
-                }
-            }
-            .padding(.leading, DSLayout.elementPadding)
-            
-            VStack(alignment: .leading, spacing: DSLayout.elementGap) {
-                Text(truncateChapterTitle(viewModel.chapter.title))
-                    .font(DSText.emphasized)
-                    .fontWeight(viewModel.isCurrent ? .semibold : .regular)
-                    .foregroundColor(viewModel.isCurrent ? .primary : .primary)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                
-                HStack(spacing: DSLayout.contentGap) {
-                    if let start = viewModel.chapter.start {
-                        HStack(spacing: DSLayout.tightGap) {
-                            Image(systemName: "clock")
-                                .font(DSText.metadata)
-                            Text(TimeFormatter.formatTime(start))
-                                .font(DSText.metadata)
-                                .monospacedDigit()
-                        }
-                        .foregroundColor(.secondary)
-                    }
-                    
-                    if let start = viewModel.chapter.start, let end = viewModel.chapter.end {
-                        HStack(spacing: DSLayout.tightGap) {
-                            Image(systemName: "timer")
-                                .font(DSText.metadata)
-                            Text(TimeFormatter.formatTime(end - start))
-                                .font(DSText.metadata)
-                                .monospacedDigit()
-                        }
-                        .foregroundColor(.secondary)
-                    }
-                }
-                
-                if viewModel.isCurrent && chapterProgress > 0 {
-                    ProgressView(value: chapterProgress)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
-                        .scaleEffect(x: 1, y: 0.6)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            
-        //    Spacer()
-            
-            VStack {
-                if viewModel.isCurrent {
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentColor.opacity(0.15))
-                            .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
-                        
-                        Image(systemName: viewModel.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
-                            .font(DSText.button)
-                            .foregroundColor(.accentColor)
-                            .symbolEffect(.pulse, options: .repeating, value: viewModel.isPlaying)
-                    }
-                }
-            }
-            .padding(.trailing, DSLayout.elementPadding)
-        }
-        .padding(DSLayout.elementPadding)
-        .background(
-            RoundedRectangle(cornerRadius: DSCorners.element)
-                .fill(viewModel.isCurrent ? Color.accentColor.opacity(0.08) : Color(.secondarySystemGroupedBackground))
-                .overlay(
-                    RoundedRectangle(cornerRadius: DSCorners.element)
-                        .stroke(
-                            viewModel.isCurrent ? Color.accentColor.opacity(0.3) : Color.clear,
-                            lineWidth: 1.5
-                        )
-                )
-                .shadow(
-                    color: viewModel.isCurrent ? Color.accentColor.opacity(0.1) : Color.black.opacity(0.05),
-                    radius: isPressed ? 4 : 8,
-                    x: 0,
-                    y: isPressed ? 2 : 4
-                )
-        )
-        .scaleEffect(isPressed ? 0.98 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
-    }
-    
-    private var chapterProgress: Double {
-        guard viewModel.isCurrent,
-              let start = viewModel.chapter.start,
-              let end = viewModel.chapter.end,
-              end > start else {
-            return 0
-        }
-        
-        let chapterDuration = end - start
-        let chapterCurrentTime = max(0, min(viewModel.currentTime - start, chapterDuration))
-        return chapterCurrentTime / chapterDuration
-    }
-    
-    private func truncateChapterTitle(_ title: String, maxLength: Int = 40) -> String {
-        guard title.count > maxLength else { return title }
-        
-        let visibleCount = maxLength - 3
-        let headCount = visibleCount / 2
-        let tailCount = visibleCount - headCount
-        
-        let head = title.prefix(headCount)
-        let tail = title.suffix(tailCount)
-        
-        return "\(head)...\(tail)"
     }
 }

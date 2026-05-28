@@ -11,13 +11,6 @@
 	<array>
 		<string>audio</string>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string>AccentColor</string>
-		<key>UIImageName</key>
-		<string>Logo</string>
-	</dict>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

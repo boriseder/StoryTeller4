@@ -1,6 +1,6 @@
 import UIKit
 import SwiftUI
-
+ 
 @main
 struct StoryTeller4App: App {
     @Environment(\.scenePhase) private var scenePhase
@@ -13,7 +13,6 @@ struct StoryTeller4App: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                // Use modern .environment injection
                 .environment(appState)
                 .environment(theme)
                 .environment(dependencies)

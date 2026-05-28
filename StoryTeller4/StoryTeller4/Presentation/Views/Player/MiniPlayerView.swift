@@ -2,28 +2,23 @@ import SwiftUI
 
 struct MiniPlayerView: View {
     let player: AudioPlayer
-    
     let api: AudiobookshelfClient?
     let onTap: () -> Void
     let onDismiss: () -> Void
-    
+
+    // Swipe-to-dismiss tracking
     @State private var dragOffset: CGFloat = 0
-    @State private var isDragging = false
-    
-    private let progressBarHeight: CGFloat = 6
-    
+
+    private let progressBarHeight: CGFloat = 3   // Slimmer — less visually heavy
     private let miniPlayerHeight: CGFloat = 54
-    
+
     var body: some View {
         VStack(spacing: 0) {
             if let book = player.book {
-                
                 VStack(spacing: 0) {
-                    
                     progressBar
                         .frame(height: progressBarHeight)
-                        .clipped()
-                    
+
                     miniPlayerContent(book: book)
                         .frame(height: miniPlayerHeight)
                 }
@@ -33,92 +28,120 @@ struct MiniPlayerView: View {
                         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: -2)
                 }
                 .clipped()
+                .offset(y: dragOffset)
+                .gesture(swipeDownGesture)
                 .onTapGesture {
                     onTap()
-                    
-                    // Haptic feedback
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
             }
         }
     }
-    
-    
+
+    // MARK: - Swipe to Dismiss
+
+    private var swipeDownGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                // Only allow downward drag
+                let translation = value.translation.height
+                if translation > 0 {
+                    // Rubber-band: full movement for first 40pt, then resists
+                    dragOffset = translation < 40
+                        ? translation
+                        : 40 + (translation - 40) * 0.3
+                }
+            }
+            .onEnded { value in
+                let velocity = value.predictedEndTranslation.height
+                if value.translation.height > 40 || velocity > 150 {
+                    withAnimation(DSAnimations.ease) {
+                        dragOffset = 200
+                    }
+                    // Short pause so the user sees the slide-out before it vanishes
+                    Task {
+                        try? await Task.sleep(nanoseconds: 180_000_000)
+                        await MainActor.run { onDismiss() }
+                    }
+                } else {
+                    withAnimation(DSAnimations.spring) {
+                        dragOffset = 0
+                    }
+                }
+            }
+    }
+
+    // MARK: - Content
+
     @ViewBuilder
     private func miniPlayerContent(book: Book) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                bookCoverSection(book: book)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    if let chapter = player.currentChapter {
-                        Text(chapter.title)
-                            .font(.system(size: 11))
-                            .lineLimit(1)
-                            .foregroundColor(.primary)
-                        
-                        Text(book.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                            .foregroundColor(.secondary.opacity(0.8))
-                    } else {
-                        Text(book.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                            .foregroundColor(.primary)
-                        
-                    }
-                    
-                    
-                    Text(book.author ?? "Unbekannter Autor")
-                        .font(.system(size: 12))
+        HStack(spacing: DSLayout.contentGap) {
+            bookCoverSection(book: book)
+
+            VStack(alignment: .leading, spacing: DSLayout.tightGap) {
+                if let chapter = player.currentChapter {
+                    Text(chapter.title)
+                        .font(DSText.fine)
                         .lineLimit(1)
-                        .foregroundColor(.secondary)
-                    
+                        .foregroundColor(.primary)
+
+                    Text(book.title)
+                        .font(DSText.emphasized)
+                        .lineLimit(1)
+                        .foregroundColor(.secondary.opacity(0.8))
+                } else {
+                    Text(book.title)
+                        .font(DSText.emphasized)
+                        .lineLimit(1)
+                        .foregroundColor(.primary)
                 }
-                
-                Spacer(minLength: 8)
-                
-                playbackControls
+
+                Text(book.author ?? "Unknown Author")
+                    .font(DSText.metadata)
+                    .lineLimit(1)
+                    .foregroundColor(.secondary)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+
+            Spacer(minLength: DSLayout.elementGap)
+
+            playbackControls
         }
+        .padding(.horizontal, DSLayout.contentPadding)
+        .padding(.vertical, DSLayout.elementPadding)
+        // Prevent the HStack's tap gesture propagating to the parent onTapGesture
+        // when the user taps a control button.
+        .contentShape(Rectangle())
     }
-    
+
+    // MARK: - Progress Bar
+
     private var progressBar: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Rectangle()
-                    .fill(Color.secondary.opacity(0.8))
-                    .frame(height: progressBarHeight)
-                
+                    .fill(Color.secondary.opacity(0.2))
+
                 Rectangle()
                     .fill(
                         LinearGradient(
-                            colors: [
-                                Color.accentColor,
-                                Color.accentColor.opacity(0.8)
-                            ],
+                            colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .frame(
-                        width: geometry.size.width * CGFloat(player.currentTime / max(player.duration, 1)),
-                        height: progressBarHeight
+                        width: geometry.size.width * CGFloat(player.currentTime / max(player.duration, 1))
                     )
-                    .animation(.linear(duration: 0.1), value: player.currentTime)
+                    .animation(.linear(duration: 0.5), value: player.currentTime)
             }
         }
-        .frame(height: progressBarHeight)
     }
-    
-    
+
+    // MARK: - Book Cover
+
     private func bookCoverSection(book: Book) -> some View {
-        let coverSize: CGFloat = 48
-        
+        let coverSize: CGFloat = 44   // Slightly smaller — better vertical balance
+
         return Group {
             if let api = api {
                 BookCoverView.square(
@@ -128,62 +151,64 @@ struct MiniPlayerView: View {
                     downloadManager: player.downloadManagerReference
                 )
             } else {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.3))
+                RoundedRectangle(cornerRadius: DSCorners.tight)
+                    .fill(DSColor.surfaceMedium)
                     .frame(width: coverSize, height: coverSize)
                     .overlay(
                         Image(systemName: "book.fill")
                             .font(.system(size: coverSize * 0.4))
-                            .foregroundColor(.gray)
+                            .foregroundColor(DSColor.secondary)
                     )
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        // Consistent with DSCorners — not a raw magic number.
+        .clipShape(RoundedRectangle(cornerRadius: DSCorners.tight))
     }
-    
+
+    // MARK: - Playback Controls
+
     private var playbackControls: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: DSLayout.contentGap) {
             Button(action: {
                 player.previousChapter()
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 16))
+                    .font(DSText.emphasized)
                     .foregroundColor(.primary)
+                    .frame(width: 36, height: 36)
             }
             .disabled(player.currentChapterIndex == 0)
-            
+
             Button(action: {
                 player.togglePlayPause()
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 ZStack {
                     Circle()
                         .fill(Color.accentColor)
-                        .frame(width: 40, height: 40)
-                    
+                        .frame(width: 38, height: 38)
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 16))
+                        .font(DSText.emphasized)
                         .foregroundColor(.white)
                 }
             }
-            
+
             Button(action: {
                 player.nextChapter()
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 16))
+                    .font(DSText.emphasized)
                     .foregroundColor(.primary)
+                    .frame(width: 36, height: 36)
             }
-            .disabled(player.book == nil ||
-                      player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1)
+            .disabled(
+                player.book == nil ||
+                player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1
+            )
         }
-        .onTapGesture {
-            // Prevents propagation to parent tap handler
-        }
+        // Stop button taps from triggering the parent onTapGesture (open fullscreen)
+        .simultaneousGesture(TapGesture().onEnded { })
     }
 }
