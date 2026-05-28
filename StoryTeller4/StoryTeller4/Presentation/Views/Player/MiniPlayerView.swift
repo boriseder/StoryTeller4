@@ -9,8 +9,7 @@ struct MiniPlayerView: View {
     // Swipe-to-dismiss tracking
     @State private var dragOffset: CGFloat = 0
 
-    private let progressBarHeight: CGFloat = 3   // Slimmer — less visually heavy
-    private let miniPlayerHeight: CGFloat = 54
+    private let progressBarHeight: CGFloat = 4
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,11 +19,11 @@ struct MiniPlayerView: View {
                         .frame(height: progressBarHeight)
 
                     miniPlayerContent(book: book)
-                        .frame(height: miniPlayerHeight)
+                        .frame(height: DSLayout.miniPlayerHeight)
                 }
                 .background {
                     Rectangle()
-                        .fill(.regularMaterial)
+                        .fill(.ultraThickMaterial)
                         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: -2)
                 }
                 .clipped()
@@ -75,10 +74,10 @@ struct MiniPlayerView: View {
 
     @ViewBuilder
     private func miniPlayerContent(book: Book) -> some View {
-        HStack(spacing: DSLayout.contentGap) {
+        HStack(spacing: DSLayout.tightGap) {
             bookCoverSection(book: book)
 
-            VStack(alignment: .leading, spacing: DSLayout.tightGap) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let chapter = player.currentChapter {
                     Text(chapter.title)
                         .font(DSText.fine)
@@ -86,28 +85,30 @@ struct MiniPlayerView: View {
                         .foregroundColor(.primary)
 
                     Text(book.title)
-                        .font(DSText.emphasized)
+                        .font(DSText.fine)
                         .lineLimit(1)
                         .foregroundColor(.secondary.opacity(0.8))
                 } else {
                     Text(book.title)
-                        .font(DSText.emphasized)
+                        .font(DSText.fine)
                         .lineLimit(1)
                         .foregroundColor(.primary)
                 }
 
+                /*
                 Text(book.author ?? "Unknown Author")
                     .font(DSText.metadata)
                     .lineLimit(1)
                     .foregroundColor(.secondary)
+                 */
             }
 
             Spacer(minLength: DSLayout.elementGap)
 
             playbackControls
         }
-        .padding(.horizontal, DSLayout.contentPadding)
-        .padding(.vertical, DSLayout.elementPadding)
+        //.padding(.horizontal, DSLayout.contentPadding)
+        //.padding(.vertical, DSLayout.elementPadding)
         // Prevent the HStack's tap gesture propagating to the parent onTapGesture
         // when the user taps a control button.
         .contentShape(Rectangle())
@@ -140,7 +141,7 @@ struct MiniPlayerView: View {
     // MARK: - Book Cover
 
     private func bookCoverSection(book: Book) -> some View {
-        let coverSize: CGFloat = 44   // Slightly smaller — better vertical balance
+        let coverSize: CGFloat = 50   // Slightly smaller — better vertical balance
 
         return Group {
             if let api = api {
@@ -162,13 +163,13 @@ struct MiniPlayerView: View {
             }
         }
         // Consistent with DSCorners — not a raw magic number.
-        .clipShape(RoundedRectangle(cornerRadius: DSCorners.tight))
+        //.clipShape(RoundedRectangle(cornerRadius: DSCorners.tight))
     }
 
     // MARK: - Playback Controls
 
     private var playbackControls: some View {
-        HStack(spacing: DSLayout.contentGap) {
+        HStack(spacing: DSLayout.tightGap) {
             Button(action: {
                 player.previousChapter()
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -208,6 +209,7 @@ struct MiniPlayerView: View {
                 player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1
             )
         }
+        .background(.yellow)
         // Stop button taps from triggering the parent onTapGesture (open fullscreen)
         .simultaneousGesture(TapGesture().onEnded { })
     }

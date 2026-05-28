@@ -34,8 +34,7 @@ struct PlayerContainer<Content: View>: View {
     var body: some View {
         ZStack {
             content
-                .ignoresSafeArea()  // ← ADD THIS HERE
-/*
+
             if playerStateManager.mode == .mini, player.book != nil {
                 VStack {
                     Spacer()
@@ -53,10 +52,11 @@ struct PlayerContainer<Content: View>: View {
                             }
                         }
                     )
+                    .padding(.bottom, DSLayout.miniPlayerHeight)
                 }
                // .zIndex(1)
             }
-*/
+
             if playerStateManager.mode == .fullscreen {
                 fullscreenPlayer
             }

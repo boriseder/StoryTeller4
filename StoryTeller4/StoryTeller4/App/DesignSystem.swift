@@ -29,7 +29,7 @@ enum DSLayout {
     static let buttonHeight: CGFloat = 44
     static let searchBarHeight: CGFloat = 44
     static let tabBarHeight: CGFloat = 90
-    static let miniPlayerHeight: CGFloat = 90
+    static let miniPlayerHeight: CGFloat = 49
     
     // MARK: Icon Größen
     static let smallIcon: CGFloat = 16      // Tiny icons

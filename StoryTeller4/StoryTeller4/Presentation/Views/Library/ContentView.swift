@@ -32,23 +32,82 @@ struct ContentView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .automatic
     
     var body: some View {
-        TabView {
-            Tab("Home", systemImage: "house") {
-                NavigationStack {
-                    ScrollTestView()
+
+        @Bindable var appState = appState
+
+        ZStack {
+            DynamicBackground()
+
+            switch appState.loadingState {
+
+            case .initial, .loadingCredentials, .credentialsFoundValidating, .loadingData:
+                LoadingView(message: "Loading data...")
+                    .padding(.bottom, 80)
+
+            case .noCredentialsSaved, .authenticationError:
+                Color.clear
+                    .onAppear {
+                        if UserDefaults.standard.string(forKey: "stored_username") != nil {
+                            Task { setupApp() }
+                        } else if appState.isFirstLaunch {
+                            appState.showingWelcome = true
+                        }
+                    }
+
+            case .networkError(_):
+                if bookCount > 0 {
+                    mainContent
+                        .onAppear {
+                            appState.selectedTab = .downloads
+                            appState.loadingState = .ready
+                        }
+                } else {
+                    NoDownloadsView()
                 }
-            }
-            Tab("Settings", systemImage: "gear") {
-                NavigationStack {
-                    ScrollTestView()
-                }
+
+            case .ready:
+                mainContent
             }
         }
+        .onAppear(perform: setupApp)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            if UserDefaults.standard.bool(forKey: "auto_cache_cleanup") {
+                Task { await CoverCacheManager.shared.optimizeCache() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("ServerSettingsChanged"))) { _ in
+            appState.clearConnectionIssue()
+            Task { setupApp() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("ShowSettings"))) { _ in
+            appState.showingSettings = true
+        }
+        .onDisappear {
+            cancellables.removeAll()
+        }
+        .sheet(isPresented: $appState.showingSettings) {
+            NavigationStack {
+                SettingsView(viewModel: dependencies.makeSettingsViewModel())
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Done") {
+                                appState.showingSettings = false
+                            }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $appState.showingWelcome) {
+            WelcomeView(viewModel: dependencies.makeSettingsViewModel()) {
+            appState.showingWelcome = false
+            appState.isFirstLaunch = false
+            appState.showingSettings = false
+        }
+        }
     }
-}
 
     // MARK: - Main Content
-/*
     @ViewBuilder
     private var mainContent: some View {
         // Guard ensures we never render tabs with nil ViewModels.
@@ -235,13 +294,9 @@ struct ContentView: View {
         @Bindable var appState = appState
 
         return TabView(selection: $appState.selectedTab) {
-            /*
+
             Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
                 NavigationStack { HomeView(viewModel: home) }
-            }
-             */
-            Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
-                NavigationStack { ScrollTestView() }
             }
 
             Tab("Library", systemImage: "books.vertical.fill", value: TabIndex.library) {
@@ -536,7 +591,7 @@ struct SeriesSidebarSort: View {
         }
     }
 }
-*/
+
 // MARK: - Connection Test Result
 
 enum ConnectionTestResult: Equatable {

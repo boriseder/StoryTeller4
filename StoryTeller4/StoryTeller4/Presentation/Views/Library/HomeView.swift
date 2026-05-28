@@ -17,16 +17,22 @@ struct HomeView: View {
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
  
     var body: some View {
-        contentView
-            .transition(.opacity)
-            .navigationTitle("Explore")
-            .navigationBarTitleDisplayMode(.large)
-            
-            // 3. HIDES THE TOP BAR MATERIAL (Crucial because of the title!)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
-            
-            .toolbar {
+        @Bindable var vm = viewModel
+
+        ZStack {
+            if theme.backgroundStyle == .dynamic {
+                DynamicBackground()
+                    .transition(.opacity)
+                    .zIndex(0)
+            }
+
+            contentView
+                .transition(.opacity)
+        }
+        .navigationTitle("Explore")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbarColorScheme(theme.colorScheme, for: .navigationBar)
+        .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showBookmarks.toggle() }) {
                     Image(systemName: "bookmark.fill")
@@ -44,7 +50,6 @@ struct HomeView: View {
         .task {
             await viewModel.loadPersonalizedSectionsIfNeeded()
         }
-        // FIXED: Pass injected container into SeriesDetailView
         .sheet(item: $selectedSeries) { series in
             SeriesDetailView(
                 series: series,
@@ -55,7 +60,6 @@ struct HomeView: View {
             .presentationDragIndicator(.visible)
             .presentationBackground(.black.opacity(0.65))
         }
-        // FIXED: Use factory method on injected container for AuthorDetailView
         .sheet(item: $selectedAuthor) { author in
             AuthorDetailView(
                 viewModel: dependencies.makeAuthorDetailViewModel(
