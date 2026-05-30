@@ -133,13 +133,7 @@ struct ContentView: View {
                         downloads: downloads
                     )
                 } else {
-                    iPhoneLayout(
-                        home: home,
-                        library: library,
-                        series: series,
-                        authors: authors,
-                        downloads: downloads
-                    )
+                    iPhoneLayout
                 }
             }
             // Preserve the modifier chain so .ignoresSafeArea() at the call site
@@ -284,38 +278,37 @@ struct ContentView: View {
     }
 
     // MARK: - iPhone Layout
-    private func iPhoneLayout(
-        home: HomeViewModel,
-        library: LibraryViewModel,
-        series: SeriesViewModel,
-        authors: AuthorsViewModel,
-        downloads: DownloadsViewModel
-    ) -> some View {
-        @Bindable var appState = appState
-
-        return TabView(selection: $appState.selectedTab) {
-
-            Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
-                NavigationStack { HomeView(viewModel: home) }
+    @ViewBuilder
+    private var iPhoneLayout: some View {
+        if let home = homeViewModel,
+           let library = libraryViewModel,
+           let series = seriesViewModel,
+           let authors = authorsViewModel,
+           let downloads = downloadsViewModel
+        {
+            @Bindable var appState = appState  // ← now inside a ViewBuilder, works correctly
+            
+            TabView(selection: $appState.selectedTab) {
+                Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
+                    NavigationStack { HomeView(viewModel: home) }
+                }
+                Tab("Library", systemImage: "books.vertical.fill", value: TabIndex.library) {
+                    NavigationStack { LibraryView(viewModel: library, columnVisibility: $columnVisibility) }
+                }
+                Tab("Series", systemImage: "play.square.stack.fill", value: TabIndex.series) {
+                    NavigationStack { SeriesView(viewModel: series) }
+                }
+                Tab("Authors", systemImage: "person.2.fill", value: TabIndex.authors) {
+                    NavigationStack { AuthorsView(viewModel: authors) }
+                }
+                Tab("Downloads", systemImage: "arrow.down.circle.fill", value: TabIndex.downloads) {
+                    NavigationStack { DownloadsView(viewModel: downloads) }
+                }
             }
-
-            Tab("Library", systemImage: "books.vertical.fill", value: TabIndex.library) {
-                NavigationStack { LibraryView(viewModel: library, columnVisibility: $columnVisibility) }
-            }
-            Tab("Series", systemImage: "play.square.stack.fill", value: TabIndex.series) {
-                NavigationStack { SeriesView(viewModel: series) }
-            }
-            Tab("Authors", systemImage: "person.2.fill", value: TabIndex.authors) {
-                NavigationStack { AuthorsView(viewModel: authors) }
-            }
-            Tab("Downloads", systemImage: "arrow.down.circle.fill", value: TabIndex.downloads) {
-                NavigationStack { DownloadsView(viewModel: downloads) }
-            }
+            .accentColor(theme.accent)
+            .id(theme.accent)
         }
-        .accentColor(theme.accent)
-        .id(theme.accent)
     }
-    
     // MARK: - iPad Selected Tab
 
     @ViewBuilder
