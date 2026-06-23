@@ -1,15 +1,6 @@
 import SwiftUI
 import AVKit
 
-// MARK: - PreferenceKey for measuring the controls stack natural height
-
-private struct ControlsHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 // MARK: - FullscreenPlayerView
 
 struct FullscreenPlayerView: View {
@@ -32,8 +23,6 @@ struct FullscreenPlayerView: View {
     @State private var jumpOverlayID = UUID()
     @State private var jumpResetTask: Task<Void, Never>? = nil
 
-    @State private var controlsStackHeight: CGFloat = 0
-
     @ScaledMetric(relativeTo: .largeTitle) private var playButtonSize: CGFloat = 64
 
     private let minCoverSize: CGFloat = 100
@@ -48,11 +37,6 @@ struct FullscreenPlayerView: View {
         GeometryReader { geo in
             adaptiveLayout(in: geo)
                 .background(DSColor.background)
-        }
-        .onPreferenceChange(ControlsHeightKey.self) { measured in
-            if abs(measured - controlsStackHeight) > 1 {
-                controlsStackHeight = measured
-            }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -94,29 +78,26 @@ struct FullscreenPlayerView: View {
     // MARK: - Adaptive Layout
 
     private func adaptiveLayout(in geo: GeometryProxy) -> some View {
-        let safeWidth = geo.size.width - (DSLayout.screenPadding * 2)
-        let totalHeight = geo.size.height
-        let topPadding = DSLayout.contentGap
-        let availableForCover = totalHeight - controlsStackHeight - topPadding
-        let coverSize = max(minCoverSize, min(safeWidth, availableForCover))
-
-        return VStack(spacing: 0) {
-            Spacer(minLength: topPadding)
-
-            coverArtView(size: coverSize)
-                .padding(.horizontal, DSLayout.screenPadding)
-
-            controlsStack
-                .padding(.horizontal, DSLayout.screenPadding)
-                .padding(.bottom, max(geo.safeAreaInsets.bottom, DSLayout.screenPadding))
-                .background(
-                    GeometryReader { stackGeo in
-                        Color.clear
-                            .preference(key: ControlsHeightKey.self, value: stackGeo.size.height)
-                    }
-                )
+        // geo.size is zero on the very first layout pass — guard against it
+        guard geo.size.width > 0, geo.size.height > 0 else {
+            return AnyView(Color.clear)
         }
-        .frame(width: geo.size.width, height: totalHeight, alignment: .top)
+
+        let safeWidth = geo.size.width - (DSLayout.screenPadding * 2)
+        let coverSize = min(safeWidth, geo.size.height * 0.5)
+
+        return AnyView(
+            VStack(spacing: 0) {
+                // Cover — fixed square, never grows beyond safeWidth or 50% of height
+                coverArtView(size: coverSize)
+
+                // Controls — fill all remaining space; internal Spacers distribute it
+                controlsStack
+                    .padding(.bottom, max(geo.safeAreaInsets.bottom, DSLayout.screenPadding))
+            }
+            .padding(.horizontal, DSLayout.screenPadding)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+        )
     }
 
     // MARK: - Controls Stack
@@ -125,7 +106,9 @@ struct FullscreenPlayerView: View {
         VStack(spacing: DSLayout.contentGap) {
             trackInfoSection
             progressSection
+            Spacer(minLength: 0)
             mainControlsSection
+            Spacer(minLength: 0)
             secondaryControlsSection
         }
         .padding(.top, DSLayout.contentGap)
@@ -161,48 +144,73 @@ struct FullscreenPlayerView: View {
     // MARK: - Track Info
 
     private var trackInfoSection: some View {
-        VStack(spacing: DSLayout.elementGap) {
+        VStack(alignment: .leading, spacing: 0) {
             if let chapter = viewModel.player.currentChapter {
                 Button(action: {
                     chaptersSheetTab = .chapters
                     viewModel.showingChaptersList = true
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }) {
-                    MarqueeText(text: chapter.title, font: DSText.itemTitle)
+                    HStack {
+                        MarqueeText(text: chapter.title, font: DSText.itemTitle)
+
+                        Spacer()
+                        
+                        Button(action: {
+                            chaptersSheetTab = .bookmarks
+                            viewModel.showingChaptersList = true
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }) {
+                            Label("Add Bookmark", systemImage: "bookmark")
+                                .labelStyle(.iconOnly)
+                                .font(DSText.itemTitle)
+
+                        }
+                        .foregroundStyle(.primary) 
+                        .disabled(viewModel.player.book == nil)
+
+                    }
                 }
                 .buttonStyle(.plain)
 
+                /*
+                // Booktitle
                 Text(viewModel.player.book?.title ?? "No book selected")
                     .font(DSText.emphasized)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     .truncationMode(.tail)
 
+                // Author
                 Text(viewModel.player.book?.author ?? "")
                     .font(DSText.emphasized)
                     .foregroundColor(DSColor.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                 
+                 */
+
             }
         }
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+        //.multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, DSLayout.contentPadding)
+
     }
 
     // MARK: - Progress Section
 
     private var progressSection: some View {
-        VStack(spacing: DSLayout.tightGap) {
+        VStack(spacing: 0) {
             Slider(
                 value: Binding(
                     get: { viewModel.sliderValue },
                     set: { viewModel.updateSliderValue($0) }
                 ),
-                in: 0...max(progressDuration, 1)
+                in: 0...max(1, showBookProgress
+                    ? viewModel.player.totalBookDuration
+                    : viewModel.player.chapterDuration)
             ) { editing in
-                if editing {
-                    viewModel.isDraggingSlider = true
-                } else {
-                    viewModel.isDraggingSlider = false
+                if !editing {
                     if showBookProgress {
                         viewModel.player.seek(to: viewModel.sliderValue)
                     } else {
@@ -215,12 +223,12 @@ struct FullscreenPlayerView: View {
                 }
             }
             .tint(showBookProgress ? .purple : DSColor.accent)
+            .controlSize(.mini) // Alternativen: .small, .regular
 
             HStack {
                 Text(TimeFormatter.formatTime(progressCurrentTime))
-                    .font(.body.monospacedDigit())
+                    .font(.footnote.monospacedDigit())
                     .foregroundColor(DSColor.secondary)
-
                 Spacer()
 
                 Button(action: {
@@ -235,7 +243,7 @@ struct FullscreenPlayerView: View {
                     }
                     .foregroundColor(showBookProgress ? .purple : DSColor.secondary)
                     .padding(.horizontal, DSLayout.elementPadding)
-                    .padding(.vertical, DSLayout.tightPadding)
+                    //.padding(.vertical, DSLayout.tightPadding)
                     .background(
                         (showBookProgress ? Color.purple : DSColor.secondary)
                             .opacity(DSLayout.shadowOpacity)
@@ -246,7 +254,7 @@ struct FullscreenPlayerView: View {
                 Spacer()
 
                 Text("-\(TimeFormatter.formatTime(max(0, progressDuration - progressCurrentTime)))")
-                    .font(.body.monospacedDigit())
+                    .font(.footnote.monospacedDigit())
                     .foregroundColor(DSColor.secondary)
             }
         }
@@ -256,16 +264,19 @@ struct FullscreenPlayerView: View {
 
     private var mainControlsSection: some View {
         HStack {
+            /*
+
             Button(action: {
                 viewModel.player.previousChapter()
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 Image(systemName: "backward.end.fill")
-                    .font(DSText.pageTitle)
+                    .font(.title2)
                     .foregroundColor(isFirstChapter ? DSColor.secondary : DSColor.primary)
             }
             .disabled(isFirstChapter)
-
+             */
+            
             Spacer(minLength: DSLayout.tightGap)
 
             Button(action: {
@@ -274,7 +285,7 @@ struct FullscreenPlayerView: View {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }) {
                 Image(systemName: "gobackward.15")
-                    .font(DSText.pageTitle)
+                    .font(.largeTitle)
                     .foregroundColor(DSColor.primary)
             }
 
@@ -285,11 +296,13 @@ struct FullscreenPlayerView: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 ZStack {
-                    Circle()
+                    /*
+                     Circle()
                         .fill(DSColor.accent)
                         .frame(width: playButtonSize, height: playButtonSize)
-                    Image(systemName: viewModel.player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(DSText.pageTitle)
+                    */
+                     Image(systemName: viewModel.player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 40))
                         .foregroundColor(.white)
                 }
             }
@@ -302,21 +315,23 @@ struct FullscreenPlayerView: View {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }) {
                 Image(systemName: "goforward.15")
-                    .font(DSText.pageTitle)
+                    .font(.largeTitle)
                     .foregroundColor(DSColor.primary)
             }
 
             Spacer(minLength: DSLayout.tightGap)
 
+            /*
             Button(action: {
                 viewModel.player.nextChapter()
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 Image(systemName: "forward.end.fill")
-                    .font(DSText.pageTitle)
+                    .font(.title2)
                     .foregroundColor(isLastChapter ? DSColor.secondary : DSColor.primary)
             }
             .disabled(isLastChapter)
+             */
         }
         .padding(.vertical, DSLayout.tightPadding)
     }
@@ -332,11 +347,11 @@ struct FullscreenPlayerView: View {
             Spacer()
             airPlayButton
             Spacer()
-            moreMenuButton
+            speedButton
             Spacer()
         }
         .foregroundColor(DSColor.primary)
-        .padding(.vertical, DSLayout.tightPadding)
+        .padding(.top, DSLayout.contentPadding)
     }
 
     private var sleepTimerButton: some View {
@@ -381,29 +396,14 @@ struct FullscreenPlayerView: View {
         }
     }
 
-    private var moreMenuButton: some View {
-        Menu {
-            Button(action: {
-                showingPlaybackSettings = true
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            }) {
-                Label(
-                    "\(viewModel.player.playbackRate, specifier: "%.1f")x Speed",
-                    systemImage: "speedometer"
-                )
-            }
-            Button(action: {
-                chaptersSheetTab = .bookmarks
-                viewModel.showingChaptersList = true
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            }) {
-                Label("Add Bookmark", systemImage: "bookmark")
-            }
-            .disabled(viewModel.player.book == nil)
-        } label: {
-            Image(systemName: "ellipsis")
+    private var speedButton: some View {
+        Button(action: {
+            showingPlaybackSettings = true
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }) {
+            Image(systemName: "speedometer")
                 .font(DSText.body)
-                .frame(width: 44, height: 44)
+                .allowsHitTesting(false)
         }
     }
 

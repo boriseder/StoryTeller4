@@ -9,6 +9,10 @@ struct MiniPlayerView: View {
     // Swipe-to-dismiss tracking
     @State private var dragOffset: CGFloat = 0
 
+    @State private var activeJump: PlayerJumpOverlayView.JumpDirection? = nil
+    @State private var jumpOverlayID = UUID()
+    @State private var jumpResetTask: Task<Void, Never>? = nil
+
     private let progressBarHeight: CGFloat = 4
 
     var body: some View {
@@ -35,6 +39,7 @@ struct MiniPlayerView: View {
                 }
             }
         }
+        .padding(.horizontal, DSLayout.screenPadding)
     }
 
     // MARK: - Swipe to Dismiss
@@ -169,48 +174,59 @@ struct MiniPlayerView: View {
     // MARK: - Playback Controls
 
     private var playbackControls: some View {
-        HStack(spacing: DSLayout.tightGap) {
+        HStack(spacing: DSLayout.contentGap) {
+            
             Button(action: {
-                player.previousChapter()
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                player.seek15SecondsBack()
+                triggerJump(.backward)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }) {
-                Image(systemName: "backward.end.fill")
-                    .font(DSText.emphasized)
-                    .foregroundColor(.primary)
-                    .frame(width: 36, height: 36)
+                Image(systemName: "gobackward.15")
+                    .font(.headline)
+                    .foregroundColor(DSColor.primary)
             }
-            .disabled(player.currentChapterIndex == 0)
-
+            
             Button(action: {
                 player.togglePlayPause()
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }) {
                 ZStack {
+                    /*
                     Circle()
                         .fill(Color.accentColor)
                         .frame(width: 38, height: 38)
+                     */
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(DSText.emphasized)
+                        .font(DSText.subsectionTitle)
                         .foregroundColor(.white)
                 }
             }
 
             Button(action: {
-                player.nextChapter()
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                player.seek15SecondsForward()
+                triggerJump(.forward)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }) {
-                Image(systemName: "forward.end.fill")
-                    .font(DSText.emphasized)
-                    .foregroundColor(.primary)
-                    .frame(width: 36, height: 36)
+                Image(systemName: "goforward.15")
+                    .font(.headline)
+                    .foregroundColor(DSColor.primary)
             }
-            .disabled(
-                player.book == nil ||
-                player.currentChapterIndex >= (player.book?.chapters.count ?? 1) - 1
-            )
         }
-        .background(.yellow)
         // Stop button taps from triggering the parent onTapGesture (open fullscreen)
         .simultaneousGesture(TapGesture().onEnded { })
+        .padding(.trailing, DSLayout.elementPadding)
     }
+    
+    private func triggerJump(_ direction: PlayerJumpOverlayView.JumpDirection) {
+        jumpResetTask?.cancel()
+        jumpOverlayID = UUID()
+        withAnimation(DSAnimations.springSnappy) { activeJump = direction }
+        jumpResetTask = Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await MainActor.run {
+                withAnimation(DSAnimations.ease) { activeJump = nil }
+            }
+        }
+    }
+
 }

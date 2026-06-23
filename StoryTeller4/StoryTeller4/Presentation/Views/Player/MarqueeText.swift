@@ -62,7 +62,7 @@ struct MarqueeText: View {
             .font(font)
             .lineLimit(1)
             .hidden()
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             // Measure container width
             .background(
                 GeometryReader { geo in
@@ -98,7 +98,7 @@ struct MarqueeText: View {
                     Text(text)
                         .font(font)
                         .lineLimit(1)
-                        .frame(width: containerWidth, alignment: .center)
+                        .frame(width: containerWidth, alignment: .leading)
                 }
             }
             .clipped()

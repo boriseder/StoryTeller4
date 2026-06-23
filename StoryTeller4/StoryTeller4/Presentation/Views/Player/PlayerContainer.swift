@@ -54,7 +54,6 @@ struct PlayerContainer<Content: View>: View {
                     )
                     .padding(.bottom, DSLayout.miniPlayerHeight)
                 }
-               // .zIndex(1)
             }
 
             if playerStateManager.mode == .fullscreen {
