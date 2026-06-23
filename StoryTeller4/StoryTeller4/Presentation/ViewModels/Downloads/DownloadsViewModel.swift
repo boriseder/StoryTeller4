@@ -107,8 +107,15 @@ class DownloadsViewModel {
     
     // MARK: - Helpers
     
+    private let byteFormatter: ByteCountFormatter = {
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            formatter.allowsNonnumericFormatting = false
+            return formatter
+        }()
+        
     func formatBytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        byteFormatter.string(fromByteCount: bytes)
     }
     
     func getBookStorageSize(_ book: Book) -> String {
