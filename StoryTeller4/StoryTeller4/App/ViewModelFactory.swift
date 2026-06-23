@@ -2,14 +2,8 @@ import Foundation
 
 // MARK: - ViewModelFactory
 //
-// A stateless struct that knows how to assemble ViewModels from the two
-// containers. It holds no observable state of its own — there is nothing
-// here that would cause a re-render. Callers own the resulting ViewModels
-// via @State and are responsible for their lifetime.
-//
-// All methods are intentionally non-mutating. If a factory method needs
-// something that isn't available yet (e.g. apiContainer is nil) the call
-// site must guard before calling.
+// Stateless struct. Assembles ViewModels from ServiceContainer + APIContainer.
+// No observable state, no re-renders triggered here.
 
 @MainActor
 struct ViewModelFactory {
@@ -24,6 +18,9 @@ struct ViewModelFactory {
             fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCase(
                 bookRepository: api.bookRepository
             ),
+            // Repository is accessed via the manager so the protocol seam is preserved.
+            // Falls back to placeholder if the manager has no repository yet (shouldn't
+            // happen in production since ServiceContainer wires it at init).
             downloadRepository: services.downloadManager.repository ?? DefaultDownloadRepository.placeholder,
             libraryRepository: api.libraryRepository,
             bookRepository: api.bookRepository,
@@ -142,7 +139,7 @@ struct ViewModelFactory {
     ) -> SeriesDetailViewModel {
         SeriesDetailViewModel(
             series: series,
-            container: DependencyContainer.shared,  // SeriesDetailViewModel still takes the full container for now
+            container: DependencyContainer.shared,
             onBookSelected: onBookSelected
         )
     }

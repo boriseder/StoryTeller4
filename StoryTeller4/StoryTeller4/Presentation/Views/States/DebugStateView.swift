@@ -1,4 +1,3 @@
-
 import SwiftUI
 
 enum DebugSheet: Identifiable {
@@ -7,29 +6,36 @@ enum DebugSheet: Identifiable {
     var id: Int { hashValue }
 }
 
-
 struct DebugStateView: View {
     @Environment(ThemeManager.self) var theme
     @Environment(DependencyContainer.self) var dependencies
-    
-    // Derived from dependencies
+
     private var downloadManager: DownloadManager { dependencies.downloadManager }
-    
+
+    // Active downloads are entries in downloadStates where isDownloading == true
+    private var activeStates: [(bookId: String, state: DownloadState)] {
+        downloadManager.downloadStates
+            .filter { $0.value.isDownloading }
+            .map { (bookId: $0.key, state: $0.value) }
+            .sorted { $0.bookId < $1.bookId }
+    }
+
     var body: some View {
         List {
             Section("Download Manager") {
                 LabeledContent("Books Downloaded", value: "\(downloadManager.downloadedBooks.count)")
-                LabeledContent("Active Downloads", value: "\(downloadManager.isDownloading.count)")
+                LabeledContent("Active Downloads", value: "\(activeStates.count)")
             }
-            
+
             Section("Active Downloads Details") {
-                ForEach(Array(downloadManager.isDownloading.keys), id: \.self) { bookId in
+                ForEach(activeStates, id: \.bookId) { entry in
                     VStack(alignment: .leading) {
-                        Text("Book ID: \(bookId)")
+                        Text("Book ID: \(entry.bookId)")
                             .font(.caption)
-                        if let progress = downloadManager.downloadProgress[bookId] {
-                            ProgressView(value: progress)
-                        }
+                        Text(entry.state.statusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        ProgressView(value: entry.state.progress)
                     }
                 }
             }

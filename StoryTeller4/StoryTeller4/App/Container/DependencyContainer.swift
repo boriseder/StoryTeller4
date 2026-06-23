@@ -5,18 +5,8 @@ import Observation
 // MARK: - DependencyContainer
 //
 // The single environment object injected at the root of the app.
-// It no longer owns business logic — it owns two focused containers
-// and delegates every accessor and factory to them.
-//
-// ServiceContainer  — created at init, lives forever, no auth dependency
-// APIContainer      — created after login, replaced on logout/re-login
-// ViewModelFactory  — stateless struct, assembled on demand from the two containers
-//
-// The @Observable surface here is intentionally minimal:
-//   • services   — set once, never mutates after init
-//   • apiContainer — swapped atomically on login/logout
-//   • isConfigured — flips once per session
-// Everything else that used to live here has moved to the appropriate container.
+// Owns ServiceContainer (long-lived, auth-independent) and APIContainer
+// (created after login, replaced on logout). Delegates everything else.
 
 @MainActor
 @Observable
@@ -62,9 +52,6 @@ final class DependencyContainer {
     }
 
     // MARK: - Convenience pass-throughs
-    //
-    // Keep the same property names that views already use so call sites
-    // don't need to change. These are just forwarding accessors.
 
     var player: AudioPlayer                     { services.player }
     var playerStateManager: PlayerStateManager  { services.playerStateManager }
@@ -81,9 +68,6 @@ final class DependencyContainer {
 
     // MARK: - Factory
 
-    /// Returns a factory only when the API is configured.
-    /// Call sites that need a factory must guard on this being non-nil,
-    /// which makes the "not logged in yet" case explicit rather than silent.
     var factory: ViewModelFactory? {
         guard let api = apiContainer else { return nil }
         return ViewModelFactory(services: services, api: api)
@@ -145,7 +129,7 @@ final class DependencyContainer {
             ?? SeriesDetailViewModel.placeholder(seriesBook: seriesBook)
     }
 
-    // MARK: - Bookmark Enrichment (delegated to APIContainer)
+    // MARK: - Bookmark Enrichment
 
     func getEnrichedBookmarks(for libraryItemId: String) -> [EnrichedBookmark] {
         apiContainer?.bookmarkEnrichment.enrichedBookmarks(for: libraryItemId) ?? []
@@ -166,21 +150,13 @@ final class DependencyContainer {
 
 // MARK: - ServiceContainer convenience
 
-private extension DependencyContainer {
-    // Lets reset() clear the book cache without force-unwrapping apiContainer
-    // (which may already be nil at that point).
-}
+private extension DependencyContainer { }
 
 extension ServiceContainer {
-    // Exposed so DependencyContainer.reset() can clear the cache if needed
-    // without holding a stale APIContainer reference.
-    var bookRepository: BookRepository? { nil } // repositories live in APIContainer
+    var bookRepository: BookRepository? { nil }
 }
 
 // MARK: - ViewModelFactory placeholder helpers
-//
-// Used only when factory is nil (not yet logged in).
-// These produce safe empty-state ViewModels — not placeholder API clients.
 
 extension ViewModelFactory {
     static func makePlaceholderSettingsViewModel(services: ServiceContainer) -> SettingsViewModel {
@@ -213,11 +189,9 @@ extension ViewModelFactory {
 }
 
 // MARK: - ViewModel placeholder stubs
-//
-// Each ViewModel already has a static .placeholder — we just need the ones
-// that take parameters.
 
 extension BookDetailViewModel {
+    // No longer needs to construct a repository — just the manager
     static func placeholder(bookId: String, downloadManager: DownloadManager) -> BookDetailViewModel {
         BookDetailViewModel(
             bookId: bookId,

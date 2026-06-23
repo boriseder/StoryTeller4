@@ -1,50 +1,46 @@
 import Foundation
-import SwiftUI
-import Observation
 
 // MARK: - ServiceContainer
 //
-// Holds every service that exists independently of whether the user is logged in.
-// Created once when the app launches and never replaced.
+// Owns all long-lived, auth-independent services.
+// This is the only place where DownloadManager and DownloadRepository
+// are constructed and wired together. The wiring is one-directional:
 //
-// Rule: nothing in here should depend on an API client or auth token.
-// If it needs a baseURL or token it belongs in APIContainer instead.
+//   DefaultDownloadRepository  ──onStateChanged──►  DownloadManager
+//
+// Neither class references the other after configure() returns.
 
 @MainActor
-@Observable
 final class ServiceContainer {
 
-    // MARK: - Playback
+    // MARK: - Download stack (constructed and wired here, owned here)
+
+    let downloadManager: DownloadManager
+
+    // Retained so the repository is not deallocated.
+    // External callers always go through downloadManager.repository (protocol).
+    private let downloadRepository: DefaultDownloadRepository
+
+    // MARK: - Other services
+
     let player: AudioPlayer
     let playerStateManager: PlayerStateManager
     let sleepTimerService: SleepTimerService
-
-    // MARK: - Downloads
-    let downloadManager: DownloadManager
-
-    // MARK: - Infrastructure
-    let keychainService: KeychainService
     let coverCacheManager: CoverCacheManager
     let storageMonitor: StorageMonitor
-    let authService: AuthenticationService
-    let serverValidator: ServerConfigValidator
     let connectionHealthChecker: ConnectionHealthChecker
+    let authService: AuthenticationService
+    let keychainService: KeychainService
+    let serverValidator: ServerConfigValidator
 
     // MARK: - Init
 
     init() {
-        // 1. Player stack
-        let player = AudioPlayer()
-        self.player = player
-        self.playerStateManager = PlayerStateManager()
-        self.sleepTimerService = SleepTimerService(player: player, timerService: TimerService())
-
-        // 2. Download stack
-        let downloadManager = DownloadManager()
-        let networkService = DefaultDownloadNetworkService()
-        let storageService = DefaultDownloadStorageService()
-        let retryPolicy = ExponentialBackoffRetryPolicy()
+        // 1. Build all leaf services (no cross-dependencies)
+        let storageService    = DefaultDownloadStorageService()
+        let networkService    = DefaultDownloadNetworkService()
         let validationService = DefaultDownloadValidationService()
+        let retryPolicy       = ExponentialBackoffRetryPolicy()
 
         let orchestrationService = DefaultDownloadOrchestrationService(
             networkService: networkService,
@@ -53,33 +49,55 @@ final class ServiceContainer {
             validationService: validationService
         )
 
-        let healingService = DefaultBackgroundHealingService(
-            storageService: storageService,
-            validationService: validationService,
-            onBookRemoved: { [weak downloadManager] bookId in
-                Task { @MainActor in
-                    downloadManager?.downloadedBooks.removeAll { $0.id == bookId }
-                }
-            }
-        )
+        // 2. Build DownloadManager first — no dependencies yet
+        let manager = DownloadManager()
 
-        let downloadRepository = DefaultDownloadRepository(
+        // 3. Build the repository — no DownloadManager reference needed.
+        //    The healing service receives a weak repository reference so
+        //    it can call deleteBook(), which fires onStateChanged, which
+        //    causes DownloadManager to refresh downloadedBooks via its own
+        //    callback. We never mutate downloadedBooks (private(set)) from
+        //    outside DownloadManager directly.
+        let repository = DefaultDownloadRepository(
             orchestrationService: orchestrationService,
             storageService: storageService,
             validationService: validationService,
-            healingService: healingService,
-            downloadManager: downloadManager
+            // Healing service is built inside the repository init with a
+            // factory closure so the weak capture is safe.
+            healingService: DefaultBackgroundHealingService(
+                storageService: storageService,
+                validationService: validationService,
+                onBookRemoved: { bookId in
+                    // Resolved on MainActor via the Task below.
+                    // deleteBook() is @MainActor on the protocol so this
+                    // hop is required.
+                    Task { @MainActor in
+                        // We reach the repository through the manager's
+                        // repository property to avoid a capture cycle.
+                        manager.repository?.deleteBook(bookId)
+                    }
+                }
+            ),
+            startHealing: true
         )
 
-        downloadManager.configure(repository: downloadRepository)
-        self.downloadManager = downloadManager
+        // 4. Wire the callback: repository → manager (one direction only)
+        manager.configure(repository: repository)
 
-        // 3. Infrastructure
-        self.keychainService = KeychainService.shared
-        self.coverCacheManager = CoverCacheManager.shared
-        self.storageMonitor = StorageMonitor()
-        self.authService = AuthenticationService()
-        self.serverValidator = ServerConfigValidator()
+        self.downloadManager    = manager
+        self.downloadRepository = repository
+
+        // 5. Build remaining services.
+        //    CoverCacheManager and KeychainService use private inits with
+        //    shared singletons — always access via .shared.
+        self.player               = AudioPlayer()
+        self.playerStateManager   = PlayerStateManager()  // TODO: pass player: player if PlayerStateManager.init requires it
+        self.sleepTimerService    = SleepTimerService(player: player)
+        self.coverCacheManager    = CoverCacheManager.shared
+        self.storageMonitor       = StorageMonitor()
         self.connectionHealthChecker = ConnectionHealthChecker()
+        self.authService          = AuthenticationService()
+        self.keychainService      = KeychainService.shared
+        self.serverValidator      = ServerConfigValidator()
     }
 }

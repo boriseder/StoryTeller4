@@ -6,25 +6,30 @@ protocol DownloadBookUseCaseProtocol: Sendable {
     @MainActor func delete(bookId: String)
 }
 
+// MARK: - DownloadBookUseCase
+//
+// Thin orchestration layer between ViewModels and DownloadManager.
+// ViewModels should prefer this over calling DownloadManager directly
+// so that the download entry-point is a single, testable seam.
+
 final class DownloadBookUseCase: DownloadBookUseCaseProtocol, Sendable {
-    // DownloadManager is @MainActor isolated, so holding a reference is safe in a Sendable class
-    // but interacting with it generally requires @MainActor context or await.
+
     private let downloadManager: DownloadManager
-    
+
     init(downloadManager: DownloadManager) {
         self.downloadManager = downloadManager
     }
-    
+
     @MainActor
     func execute(book: Book, api: AudiobookshelfClient) async {
         await downloadManager.downloadBook(book, api: api)
     }
-    
+
     @MainActor
     func cancel(bookId: String) {
         downloadManager.cancelDownload(for: bookId)
     }
-    
+
     @MainActor
     func delete(bookId: String) {
         downloadManager.deleteBook(bookId)

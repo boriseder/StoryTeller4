@@ -1,14 +1,8 @@
-//
-//  DetailDownloadState.swift
-//  StoryTeller4
-//
-//  Created by Boris Eder on 12.12.25.
-//
-
-
 import Foundation
 import SwiftUI
 import Observation
+
+// MARK: - DetailDownloadState
 
 enum DetailDownloadState {
     case notDownloaded
@@ -17,43 +11,52 @@ enum DetailDownloadState {
     case downloaded
 }
 
+// MARK: - BookDetailViewModel
+
 @MainActor
 @Observable
 class BookDetailViewModel {
+
     var book: Book?
     var isLoading = false
     var errorMessage: String?
     var formattedDescription: AttributedString = AttributedString("")
-    
-    // Dependencies
+
+    // MARK: - Dependencies
+
     private let bookId: String
     private let bookRepository: BookRepository
     private let downloadManager: DownloadManager
     private let api: AudiobookshelfClient
-    
-    init(bookId: String, bookRepository: BookRepository, downloadManager: DownloadManager, api: AudiobookshelfClient) {
+
+    // MARK: - Init
+
+    init(
+        bookId: String,
+        bookRepository: BookRepository,
+        downloadManager: DownloadManager,
+        api: AudiobookshelfClient
+    ) {
         self.bookId = bookId
         self.bookRepository = bookRepository
         self.downloadManager = downloadManager
         self.api = api
-        
+
         loadBookDetails()
     }
 
     // MARK: - Loading
+
     func loadBookDetails() {
         isLoading = true
         errorMessage = nil
-        
+
         Task {
             do {
                 let fetchedBook = try await bookRepository.fetchBookDetails(bookId: bookId)
                 self.book = fetchedBook
-                
-                // We do this on MainActor because NSAttributedString requires it for HTML
                 let rawDescription = fetchedBook.description ?? "No description available."
                 self.formattedDescription = rawDescription.htmlToAttributedString()
-                
                 self.isLoading = false
             } catch {
                 self.errorMessage = "Failed to load book details: \(error.localizedDescription)"
@@ -63,81 +66,61 @@ class BookDetailViewModel {
     }
 
     // MARK: - Download State
+    //
+    // Now reads from downloadManager.downloadStates via the new typed
+    // accessors instead of the old raw dictionaries.
+
     var downloadState: DetailDownloadState {
-        guard let book = book else { return .notDownloaded }
-        
+        guard let book else { return .notDownloaded }
+
         if downloadManager.isBookDownloaded(book.id) {
             return .downloaded
         }
-        
+
         if downloadManager.isDownloadingBook(book.id) {
-             let progress = downloadManager.getDownloadProgress(for: book.id)
-             return .downloading(progress: progress)
+            // Uses the new named accessor — no dictionary indexing in view layer
+            let progress = downloadManager.progress(for: book.id)
+            return .downloading(progress: progress)
         }
-        
+
         return .notDownloaded
     }
-    
-    // MARK: - Computed Properties for View
-    
-    var title: String {
-        book?.title ?? "Unknown Title"
+
+    // MARK: - Computed Properties
+
+    var title: String       { book?.title ?? "Unknown Title" }
+    var author: String      { book?.author ?? "Unknown Author" }
+    var hasDescription: Bool { !(book?.description?.isEmpty ?? true) }
+    var chapters: [Chapter] { book?.chapters ?? [] }
+
+    // MARK: - Stage / Status for UI (optional — expose if views need it)
+
+    var downloadStage: DownloadStage {
+        guard let book else { return .preparing }
+        return downloadManager.stage(for: book.id)
     }
 
-    var author: String {
-        book?.author ?? "Unknown Author"
+    var downloadStatusMessage: String {
+        guard let book else { return "" }
+        return downloadManager.statusMessage(for: book.id)
     }
-    
-    /*
-    var narratedBy: String? {
-        book?.narrator
-    }
-     
-    var description: String {
-        book?.description ?? "No description available."
-    }
-     */
 
-    var hasDescription: Bool {
-        !(book?.description?.isEmpty ?? true)
-    }
-    
-    var chapters: [Chapter] {
-        book?.chapters ?? []
-    }
-    /*
-    var totalDuration: String {
-        guard let duration = book?.duration else { return "N/A" }
-        // FIX: Use 'formatDuration' which exists in TimeFormatter
-        return TimeFormatter.formatDuration(duration)
-    }
-    */
-    /*
-    var releaseDate: String? {
-        book?.publishedYear
-    }
-    */
     // MARK: - Actions
-    
+
     func downloadBook() {
-        guard let book = book else { return }
+        guard let book else { return }
         Task {
-            // FIX: Pass 'api' and use correct argument labels
             await downloadManager.downloadBook(book, api: api)
         }
     }
-    
+
     func cancelDownload() {
-        guard let book = book else { return }
-        // FIX: Use 'cancelDownload(for:)'
+        guard let book else { return }
         downloadManager.cancelDownload(for: book.id)
     }
-    
+
     func deleteDownloadedBook() {
-        guard let book = book else { return }
-        // FIX: Use 'deleteBook(_:)'
+        guard let book else { return }
         downloadManager.deleteBook(book.id)
     }
-    
-    
 }
