@@ -38,7 +38,7 @@ class DefaultBookmarkService: BookmarkServiceProtocol {
         
         let userData: UserData = try await networkService.performRequest(request, responseType: UserData.self)
         
-        AppLogger.general.debug("[BookmarkService] ✅ Loaded \(userData.bookmarks.count) bookmarks, \(userData.mediaProgress.count) progress items")
+        AppLogger.general.debug("[BookmarkService] Loaded \(userData.bookmarks.count) bookmarks, \(userData.mediaProgress.count) progress items")
         
         return userData
     }
@@ -69,7 +69,7 @@ class DefaultBookmarkService: BookmarkServiceProtocol {
         // FIX: Decode Bookmark directly. API returns the object, not a wrapper.
         let bookmark = try await networkService.performRequest(request, responseType: Bookmark.self)
         
-        AppLogger.general.debug("[BookmarkService] ✅ Bookmark created")
+        AppLogger.general.debug("[BookmarkService] Bookmark created")
         
         return bookmark
     }
@@ -100,7 +100,7 @@ class DefaultBookmarkService: BookmarkServiceProtocol {
         // FIX: Decode Bookmark directly. API returns the object, not a wrapper.
         let bookmark = try await networkService.performRequest(request, responseType: Bookmark.self)
         
-        AppLogger.general.debug("[BookmarkService] ✅ Bookmark updated")
+        AppLogger.general.debug("[BookmarkService] Bookmark updated")
         
         return bookmark
     }
@@ -118,7 +118,7 @@ class DefaultBookmarkService: BookmarkServiceProtocol {
         
         let _: EmptyResponse? = try? await networkService.performRequest(request, responseType: EmptyResponse.self)
         
-        AppLogger.general.debug("[BookmarkService] ✅ Bookmark deleted")
+        AppLogger.general.debug("[BookmarkService] Bookmark deleted")
     }
 }
 

@@ -148,10 +148,10 @@ final class DefaultDownloadStorageService: DownloadStorageService {
         encoder.dateEncodingStrategy = .iso8601
         let audioInfoData = try encoder.encode(audioInfo)
         
-        // ✅ FIX: Use safe write with fsync
+        // FIX: Use safe write with fsync
         try writeDataSafely(audioInfoData, to: audioInfoURL)
         
-        // ✅ FIX: Sync directory to persist file entry
+        // FIX: Sync directory to persist file entry
         try syncDirectory(at: directory)
         
         AppLogger.general.debug("[DownloadStorage] Saved audio info: \(audioInfo.audioTrackCount) tracks")
@@ -170,18 +170,18 @@ final class DefaultDownloadStorageService: DownloadStorageService {
     }
     
     func saveAudioFile(_ data: Data, to url: URL) throws {
-        // ✅ FIX: Use safe write with fsync for audio files
+        // FIX: Use safe write with fsync for audio files
         try writeDataSafely(data, to: url)
         
-        // ✅ FIX: Sync parent directory to persist file entry
+        // FIX: Sync parent directory to persist file entry
         try syncDirectory(at: url.deletingLastPathComponent())
     }
     
     func saveCoverImage(_ data: Data, to url: URL) throws {
-        // ✅ FIX: Use safe write with fsync for cover images
+        // FIX: Use safe write with fsync for cover images
         try writeDataSafely(data, to: url)
         
-        // ✅ FIX: Sync parent directory to persist file entry
+        // FIX: Sync parent directory to persist file entry
         try syncDirectory(at: url.deletingLastPathComponent())
     }
     

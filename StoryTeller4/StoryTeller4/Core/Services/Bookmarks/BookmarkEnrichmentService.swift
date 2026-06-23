@@ -104,7 +104,7 @@ class BookmarkEnrichmentService: ObservableObject {
         bookCache[bookId] = book
         objectWillChange.send()
         
-        AppLogger.general.debug("[BookmarkEnrichment] ✅ Loaded full book: \(book.title) (\(book.chapters.count) chapters)")
+        AppLogger.general.debug("[BookmarkEnrichment] Loaded full book: \(book.title) (\(book.chapters.count) chapters)")
         
         return book
     }

@@ -51,7 +51,7 @@ extension AudioPlayer {
             loadChapter(at: targetChapterIndex, seekTo: relativeTime, shouldResume: true)
         } else {
             // Same chapter - reload with seek time for reliable seeking
-            // ✅ FIX: Always use loadChapter for bookmarks to ensure seek works
+            // FIX: Always use loadChapter for bookmarks to ensure seek works
             AppLogger.general.debug("[AudioPlayer] Reloading chapter \(targetChapterIndex) with seek to \(relativeTime)s")
             loadChapter(at: targetChapterIndex, seekTo: relativeTime, shouldResume: true)
         }

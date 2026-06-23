@@ -115,7 +115,7 @@ struct HomeView: View {
                     Spacer()
                     .frame(height: 120)
                 }
-                .padding(.horizontal, DSLayout.screenPadding)  // ✅ padding on content, not scroll view
+                .padding(.horizontal, DSLayout.screenPadding)  // padding on content, not scroll view
             }
             .scrollIndicators(.hidden)
             .ignoresSafeArea(edges: .bottom)

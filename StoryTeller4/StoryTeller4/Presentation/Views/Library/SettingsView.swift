@@ -227,6 +227,8 @@ struct SettingsView: View {
                 }
                 .disabled(!viewModel.canTestConnection)
             }
+            
+            
         } header: {
             Label("Connection Status", systemImage: "wifi")
         }

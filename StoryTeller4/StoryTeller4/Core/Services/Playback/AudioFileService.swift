@@ -3,7 +3,7 @@ import AVFoundation
 
 protocol AudioFileService {
     func getLocalAudioURL(bookId: String, chapterIndex: Int) -> URL?
-    func getStreamingAudioURL(baseURL: String, audioTrack: AudioTrack) -> URL?  // ✅ Changed
+    func getStreamingAudioURL(baseURL: String, audioTrack: AudioTrack) -> URL?  // Changed
     func createAuthenticatedAsset(url: URL, authToken: String) -> AVURLAsset
     func getLocalCoverURL(bookId: String) -> URL?
 }
@@ -19,7 +19,7 @@ class DefaultAudioFileService: AudioFileService {
         return downloadManager?.getLocalAudioURL(for: bookId, chapterIndex: chapterIndex)
     }
     
-    func getStreamingAudioURL(baseURL: String, audioTrack: AudioTrack) -> URL? {  // ✅ Changed
+    func getStreamingAudioURL(baseURL: String, audioTrack: AudioTrack) -> URL? {  // Changed
         guard let contentUrl = audioTrack.contentUrl else {
             AppLogger.general.error("[AudioFileService] AudioTrack has no contentUrl")
             return nil

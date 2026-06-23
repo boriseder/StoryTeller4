@@ -55,8 +55,6 @@ class AuthenticationService {
             throw AudiobookshelfError.invalidResponse
         }
         
-        AppLogger.general.debug("############ USER LOGGED IN #######")
-        
         switch httpResponse.statusCode {
         case 200:
             do {

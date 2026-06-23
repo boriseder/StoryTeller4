@@ -77,7 +77,7 @@ class BookmarkRepository: ObservableObject {
             }
 
             if saveErrors.isEmpty {
-                AppLogger.general.debug("[BookmarkRepo] ✅ Synced \(userData.bookmarks.count) bookmarks across \(grouped.count) books")
+                AppLogger.general.debug("[BookmarkRepo] Synced \(userData.bookmarks.count) bookmarks across \(grouped.count) books")
             } else {
                 AppLogger.general.error("[BookmarkRepo] ⚠️ Sync completed with save errors: \(saveErrors.joined(separator: ", "))")
             }
