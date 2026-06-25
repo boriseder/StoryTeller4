@@ -646,7 +646,7 @@ class AudioPlayer: NSObject {
             lastUpdate: Date(),
             chapterIndex: currentChapterIndex
         )
-        PlaybackRepository.shared.saveState(state)
+        Task { await PlaybackRepository.shared.saveState(state) }
     }
 
     private func isBookFinished() -> Bool {

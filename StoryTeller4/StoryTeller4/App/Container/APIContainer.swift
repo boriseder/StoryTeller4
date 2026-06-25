@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import Observation
-import Combine
 
 // MARK: - APIContainer
 //
@@ -13,21 +12,27 @@ import Combine
 // Rule: nothing in here should be constructed without a real baseURL and token.
 // Placeholder clients (baseURL: "", authToken: "") are explicitly banned —
 // if you need a nil-safe accessor, check DependencyContainer.apiContainer first.
+//
+// Repository properties are typed against their protocols so nothing outside
+// this file ever couples to the concrete implementations.
 
 @MainActor
 @Observable
 final class APIContainer {
 
     // MARK: - API Client
+
     let client: AudiobookshelfClient
 
-    // MARK: - Repositories
+    // MARK: - Repositories (protocol-typed)
+
     let bookRepository: BookRepository
     let libraryRepository: LibraryRepository
-    let playbackRepository: PlaybackRepository
-    let bookmarkRepository: BookmarkRepository
+    let playbackRepository: any PlaybackRepositoryProtocol
+    let bookmarkRepository: any BookmarkRepositoryProtocol
 
     // MARK: - Enrichment
+
     let bookmarkEnrichment: BookmarkEnrichmentCoordinator
 
     // MARK: - Init
@@ -47,6 +52,9 @@ final class APIContainer {
             settingsRepository: SettingsRepository()
         )
 
+        // Configure the shared repositories with the authenticated API client.
+        // `configure(api:)` is nonisolated and dispatches internally — safe to
+        // call here during synchronous init.
         let playbackRepo = PlaybackRepository.shared
         playbackRepo.configure(api: client)
         self.playbackRepository = playbackRepo
@@ -70,17 +78,25 @@ final class APIContainer {
     // MARK: - Online Initialisation
 
     func initialise(isOnline: Bool) async {
-        playbackRepository.setOnlineStatus(isOnline)
+        // setOnlineStatus is now async (actor hop required).
+        await playbackRepository.setOnlineStatus(isOnline)
 
         if isOnline {
+            // syncFromServer on PlaybackRepository reports isSyncing via closure —
+            // no observer needed here; the container just waits for completion.
             await playbackRepository.syncFromServer()
             AppLogger.general.debug("[APIContainer] PlaybackRepository synced")
 
-            await bookmarkRepository.syncFromServer()
-            AppLogger.general.debug("[APIContainer] BookmarkRepository synced")
+            // BookmarkRepository.syncFromServer() now throws; log but don't
+            // propagate — a failed background sync is non-fatal at startup.
+            do {
+                try await bookmarkRepository.syncFromServer()
+                AppLogger.general.debug("[APIContainer] BookmarkRepository synced")
+            } catch {
+                AppLogger.general.error("[APIContainer] BookmarkRepository sync failed: \(error)")
+            }
         } else {
             AppLogger.general.debug("[APIContainer] Offline — using cached data")
         }
     }
 }
-

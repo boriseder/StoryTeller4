@@ -2,23 +2,34 @@ import Foundation
 import SwiftUI
 import Observation
 
+// MARK: - BookmarkViewModel
+//
+// All UI-observable state lives here. The repository is called imperatively;
+// we never observe it reactively. This is the only class in the bookmark
+// feature that knows about @Observable / SwiftUI.
+
 @MainActor
 @Observable
 class BookmarkViewModel {
 
-    // MARK: - State
+    // MARK: - UI State
+
     var searchText = ""
     var sortOption: BookmarkSortOption = .dateNewest
     var groupByBook = true
     var allBookmarks: [EnrichedBookmark] = []
+
+    /// Loading state that was previously (incorrectly) owned by BookmarkRepository.
+    var isLoading: Bool = false
 
     // Edit State
     var editingBookmark: EnrichedBookmark?
     var editedBookmarkTitle: String = ""
 
     // MARK: - Dependencies
+
     private let dependencies: DependencyContainer
-    private let repository: BookmarkRepository
+    private let repository: any BookmarkRepositoryProtocol
     private var player: AudioPlayer { dependencies.player }
 
     // MARK: - Computed Properties
@@ -44,6 +55,7 @@ class BookmarkViewModel {
     }
 
     // MARK: - Init
+
     init(dependencies: DependencyContainer = .shared) {
         self.dependencies = dependencies
         self.repository = dependencies.bookmarkRepository
@@ -51,13 +63,25 @@ class BookmarkViewModel {
     }
 
     // MARK: - Data Refresh
+
     func refreshData() {
         allBookmarks = dependencies.getAllEnrichedBookmarks(sortedBy: sortOption)
+        // Trigger book metadata prefetch for any libraryItemId not yet in the
+        // coordinator's cache. Replaces the Combine sink that previously watched
+        // BookmarkRepository.$bookmarks reactively.
+        Task { await dependencies.apiContainer?.bookmarkEnrichment.prefetchIfNeeded() }
     }
 
     // MARK: - Actions
+
     func refresh() async {
-        await repository.syncFromServer()
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            try await repository.syncFromServer()
+        } catch {
+            AppLogger.general.error("[BookmarkVM] Sync failed: \(error)")
+        }
         refreshData()
     }
 
@@ -82,8 +106,6 @@ class BookmarkViewModel {
             if player.book?.id != book.id {
                 AppLogger.general.debug("[BookmarkVM] Loading book: \(book.title).")
 
-                // Check download status via downloadManager directly —
-                // downloadRepository was removed from DependencyContainer in the refactor.
                 let isDownloaded = dependencies.downloadManager.isBookDownloaded(book.id)
 
                 await player.load(
@@ -117,7 +139,7 @@ class BookmarkViewModel {
     }
 
     func createBookmark(libraryItemId: String, time: Double, title: String) async throws {
-        try await repository.createBookmark(
+        _ = try await repository.createBookmark(
             libraryItemId: libraryItemId,
             time: time,
             title: title
@@ -126,7 +148,7 @@ class BookmarkViewModel {
     }
 
     func updateBookmark(libraryItemId: String, time: Double, newTitle: String) async throws {
-        try await repository.updateBookmark(
+        _ = try await repository.updateBookmark(
             libraryItemId: libraryItemId,
             time: time,
             newTitle: newTitle
@@ -169,7 +191,8 @@ class BookmarkViewModel {
         editedBookmarkTitle = ""
     }
 
-    // MARK: - Helper
+    // MARK: - Private Helper
+
     private func searchFilter(_ enriched: EnrichedBookmark) -> Bool {
         if searchText.isEmpty { return true }
         let query = searchText.lowercased()

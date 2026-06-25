@@ -4,7 +4,7 @@
 //
 //  Created by Boris Eder on 25.11.25.
 //
-
+/*
 import Foundation
 import Combine
 
@@ -163,3 +163,4 @@ class BookmarkEnrichmentService: ObservableObject {
         }
     }
 }
+*/

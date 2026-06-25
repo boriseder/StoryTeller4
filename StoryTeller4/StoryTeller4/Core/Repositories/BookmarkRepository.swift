@@ -1,63 +1,79 @@
 import Foundation
-import Combine
 
 // MARK: - BookmarkRepository
 //
-// Storage strategy: one UserDefaults key per libraryItemId, matching the pattern
-// used by PlaybackRepository. This avoids the single-blob problem where one
-// large write silently fails and wipes all bookmarks for every book.
+// actor: thread-safe, no @MainActor, no ObservableObject, no @Published.
 //
-// Key scheme:
-//   "bookmarks:<libraryItemId>"        → [Bookmark] for that book (JSON)
-//   "all_bookmark_items"               → [String] of known libraryItemIds
+// Static key helpers are nonisolated — they are pure string computations
+// with no state, so there is no reason to tie them to any actor executor.
+// Marking them nonisolated makes them callable from any context (actor
+// body, nonisolated methods, init) without an isolation conflict.
 //
-// Size guard: individual bookmark arrays are capped at 512KB. This is generous
-// (a bookmark is ~200 bytes, so this allows ~2500 bookmarks per book) while
-// staying well inside UserDefaults' practical per-app limit.
+// Init strategy: same as PlaybackRepository — defer the actor-isolated
+// loadCachedBookmarks() call via Task so the actor's executor picks it up.
 
-@MainActor
-class BookmarkRepository: ObservableObject {
+actor BookmarkRepository: BookmarkRepositoryProtocol {
+
+    // MARK: - Singleton
+
     static let shared = BookmarkRepository()
 
-    @Published var bookmarks: [String: [Bookmark]] = [:]
-    @Published var isLoading: Bool = false
+    // MARK: - Private State
 
+    private var bookmarks: [String: [Bookmark]] = [:]
     private var api: AudiobookshelfClient?
     private let userDefaults = UserDefaults.standard
 
-    // MARK: - Keys
+    // MARK: - Synchronous snapshot (nonisolated bridge)
 
-    private static let allItemsKey = "all_bookmark_items"
+    private nonisolated(unsafe) var _syncBookmarksSnapshot: [String: [Bookmark]] = [:]
 
-    private static func bookmarkKey(for libraryItemId: String) -> String {
+    // MARK: - Keys (nonisolated — pure string computation, no actor state)
+
+    private nonisolated static let allItemsKey = "all_bookmark_items"
+
+    private nonisolated static func bookmarkKey(for libraryItemId: String) -> String {
         "bookmarks:\(libraryItemId)"
     }
 
     // MARK: - Init
 
     private init() {
-        loadCachedBookmarks()
+        Task { await loadCachedBookmarks() }
     }
 
     // MARK: - Configuration
 
-    func configure(api: AudiobookshelfClient) {
-        self.api = api
-        AppLogger.general.debug("[BookmarkRepo] Configured with API client")
+    nonisolated func configure(api: AudiobookshelfClient) {
+        Task { await _configure(api: api) }
+        AppLogger.general.debug("[BookmarkRepository] Configured with API client")
     }
 
-    // MARK: - Sync with Server
+    private func _configure(api: AudiobookshelfClient) {
+        self.api = api
+    }
 
-    func syncFromServer() async {
-        guard let api = api else { return }
+    // MARK: - Read (synchronous via snapshot)
 
-        isLoading = true
-        defer { isLoading = false }
+    nonisolated func getBookmarks(for libraryItemId: String) -> [Bookmark] {
+        _syncBookmarksSnapshot[libraryItemId] ?? []
+    }
+
+    nonisolated func getAllBookmarks() -> [String: [Bookmark]] {
+        _syncBookmarksSnapshot
+    }
+
+    // MARK: - Server Sync
+
+    func syncFromServer() async throws {
+        guard let api = api else {
+            AppLogger.general.debug("[BookmarkRepository] Sync skipped — API not configured")
+            return
+        }
 
         do {
             let userData = try await api.bookmarks.fetchUserData()
 
-            // Group and sort incoming bookmarks
             var grouped: [String: [Bookmark]] = [:]
             for bookmark in userData.bookmarks {
                 grouped[bookmark.libraryItemId, default: []].append(bookmark)
@@ -66,9 +82,9 @@ class BookmarkRepository: ObservableObject {
                 grouped[key]?.sort { $0.time < $1.time }
             }
 
-            self.bookmarks = grouped
+            bookmarks = grouped
+            _syncBookmarksSnapshot = grouped
 
-            // Persist each book's bookmarks individually
             var saveErrors: [String] = []
             for (libraryItemId, bookmarksForBook) in grouped {
                 if let error = saveBookmarks(bookmarksForBook, for: libraryItemId) {
@@ -77,27 +93,20 @@ class BookmarkRepository: ObservableObject {
             }
 
             if saveErrors.isEmpty {
-                AppLogger.general.debug("[BookmarkRepo] Synced \(userData.bookmarks.count) bookmarks across \(grouped.count) books")
+                AppLogger.general.debug("[BookmarkRepository] Synced \(userData.bookmarks.count) bookmarks across \(grouped.count) books")
             } else {
-                AppLogger.general.error("[BookmarkRepo] ⚠️ Sync completed with save errors: \(saveErrors.joined(separator: ", "))")
+                AppLogger.general.error("[BookmarkRepository] ⚠️ Sync completed with save errors: \(saveErrors.joined(separator: ", "))")
             }
         } catch {
-            AppLogger.general.error("[BookmarkRepo] ❌ Sync failed: \(error)")
+            AppLogger.general.error("[BookmarkRepository] ❌ Sync failed: \(error)")
+            throw error
         }
     }
 
-    // MARK: - Read
+    // MARK: - CRUD
 
-    func getBookmarks(for libraryItemId: String) -> [Bookmark] {
-        bookmarks[libraryItemId] ?? []
-    }
-
-    // MARK: - Create
-
-    func createBookmark(libraryItemId: String, time: Double, title: String) async throws {
-        guard let api = api else {
-            throw AudiobookshelfError.invalidResponse
-        }
+    func createBookmark(libraryItemId: String, time: Double, title: String) async throws -> Bookmark {
+        guard let api = api else { throw AudiobookshelfError.invalidResponse }
 
         let newBookmark = try await api.bookmarks.createBookmark(
             libraryItemId: libraryItemId,
@@ -109,17 +118,16 @@ class BookmarkRepository: ObservableObject {
         existing.append(newBookmark)
         existing.sort { $0.time < $1.time }
         bookmarks[libraryItemId] = existing
+        _syncBookmarksSnapshot[libraryItemId] = existing
 
         if let error = saveBookmarks(existing, for: libraryItemId) {
-            // The in-memory state is correct; log but don't throw — the server
-            // already has the bookmark so the user isn't losing data.
-            AppLogger.general.error("[BookmarkRepo] ⚠️ Created bookmark on server but failed to cache locally: \(error)")
+            AppLogger.general.error("[BookmarkRepository] ⚠️ Created bookmark on server but failed to cache locally: \(error)")
         }
+
+        return newBookmark
     }
 
-    // MARK: - Update
-
-    func updateBookmark(libraryItemId: String, time: Double, newTitle: String) async throws {
+    func updateBookmark(libraryItemId: String, time: Double, newTitle: String) async throws -> Bookmark {
         guard let api = api else { throw AudiobookshelfError.invalidResponse }
 
         let updatedBookmark = try await api.bookmarks.updateBookmark(
@@ -130,18 +138,19 @@ class BookmarkRepository: ObservableObject {
 
         guard var existing = bookmarks[libraryItemId],
               let index = existing.firstIndex(where: { $0.time == time }) else {
-            return
+            return updatedBookmark
         }
 
         existing[index] = updatedBookmark
         bookmarks[libraryItemId] = existing
+        _syncBookmarksSnapshot[libraryItemId] = existing
 
         if let error = saveBookmarks(existing, for: libraryItemId) {
-            AppLogger.general.error("[BookmarkRepo] ⚠️ Updated bookmark on server but failed to cache locally: \(error)")
+            AppLogger.general.error("[BookmarkRepository] ⚠️ Updated bookmark on server but failed to cache locally: \(error)")
         }
-    }
 
-    // MARK: - Delete
+        return updatedBookmark
+    }
 
     func deleteBookmark(libraryItemId: String, time: Double) async throws {
         guard let api = api else { throw AudiobookshelfError.invalidResponse }
@@ -154,33 +163,32 @@ class BookmarkRepository: ObservableObject {
         var existing = bookmarks[libraryItemId] ?? []
         existing.removeAll { $0.time == time }
         bookmarks[libraryItemId] = existing
+        _syncBookmarksSnapshot[libraryItemId] = existing
 
         if let error = saveBookmarks(existing, for: libraryItemId) {
-            AppLogger.general.error("[BookmarkRepo] ⚠️ Deleted bookmark on server but failed to update cache: \(error)")
+            AppLogger.general.error("[BookmarkRepository] ⚠️ Deleted bookmark on server but failed to update cache: \(error)")
         }
     }
 
-    // MARK: - Cache Management
+    // MARK: - Cache
 
-    func clearCache() {
-        // Remove all individual book keys
+    func clearCache() async {
         let allIds = userDefaults.stringArray(forKey: Self.allItemsKey) ?? []
         for id in allIds {
             userDefaults.removeObject(forKey: Self.bookmarkKey(for: id))
         }
         userDefaults.removeObject(forKey: Self.allItemsKey)
         bookmarks.removeAll()
-        AppLogger.general.debug("[BookmarkRepo] Cache cleared")
+        _syncBookmarksSnapshot.removeAll()
+        AppLogger.general.debug("[BookmarkRepository] Cache cleared")
     }
 
     // MARK: - Private: Persistence
 
-    /// Saves bookmarks for a single book. Returns an error description on failure, nil on success.
     @discardableResult
     private func saveBookmarks(_ bookmarksForBook: [Bookmark], for libraryItemId: String) -> String? {
         let key = Self.bookmarkKey(for: libraryItemId)
 
-        // Encode first so we can measure size before writing
         let data: Data
         do {
             data = try JSONEncoder().encode(bookmarksForBook)
@@ -188,15 +196,13 @@ class BookmarkRepository: ObservableObject {
             return "Encoding failed: \(error.localizedDescription)"
         }
 
-        // 512KB per book is very generous; hitting this indicates something unusual
         let maxBytes = 512 * 1024
         guard data.count <= maxBytes else {
-            return "Encoded size \(data.count) bytes exceeds \(maxBytes) byte limit — not writing to avoid data loss"
+            return "Encoded size \(data.count) bytes exceeds \(maxBytes) byte limit"
         }
 
         userDefaults.set(data, forKey: key)
 
-        // Track the libraryItemId so we can enumerate all keys on load
         var allIds = userDefaults.stringArray(forKey: Self.allItemsKey) ?? []
         if !allIds.contains(libraryItemId) {
             allIds.append(libraryItemId)
@@ -216,30 +222,29 @@ class BookmarkRepository: ObservableObject {
             let key = Self.bookmarkKey(for: libraryItemId)
 
             guard let data = userDefaults.data(forKey: key) else {
-                // Key registered but data missing — clean up the index
                 corruptedIds.append(libraryItemId)
                 continue
             }
 
             do {
-                let bookmarksForBook = try JSONDecoder().decode([Bookmark].self, from: data)
-                loaded[libraryItemId] = bookmarksForBook.sorted { $0.time < $1.time }
+                let decoded = try JSONDecoder().decode([Bookmark].self, from: data)
+                loaded[libraryItemId] = decoded.sorted { $0.time < $1.time }
             } catch {
-                AppLogger.general.error("[BookmarkRepo] ❌ Failed to decode bookmarks for \(libraryItemId): \(error)")
+                AppLogger.general.error("[BookmarkRepository] ❌ Failed to decode bookmarks for \(libraryItemId): \(error)")
                 corruptedIds.append(libraryItemId)
             }
         }
 
-        // Prune any IDs whose data was missing or undecodable
         if !corruptedIds.isEmpty {
             let cleanIds = allIds.filter { !corruptedIds.contains($0) }
             userDefaults.set(cleanIds, forKey: Self.allItemsKey)
-            AppLogger.general.error("[BookmarkRepo] ⚠️ Pruned \(corruptedIds.count) corrupted bookmark entries from index")
+            AppLogger.general.error("[BookmarkRepository] ⚠️ Pruned \(corruptedIds.count) corrupted bookmark entries")
         }
 
-        self.bookmarks = loaded
+        bookmarks = loaded
+        _syncBookmarksSnapshot = loaded
 
         let total = loaded.values.reduce(0) { $0 + $1.count }
-        AppLogger.general.debug("[BookmarkRepo] Loaded \(total) bookmarks across \(loaded.count) books from cache")
+        AppLogger.general.debug("[BookmarkRepository] Loaded \(total) bookmarks across \(loaded.count) books from cache")
     }
 }

@@ -7,6 +7,9 @@ import Observation
 // The single environment object injected at the root of the app.
 // Owns ServiceContainer (long-lived, auth-independent) and APIContainer
 // (created after login, replaced on logout). Delegates everything else.
+//
+// Repository references are typed against protocols so production code
+// and tests work against the same interface seam.
 
 @MainActor
 @Observable
@@ -63,8 +66,20 @@ final class DependencyContainer {
     var apiClient: AudiobookshelfClient?        { apiContainer?.client }
     var bookRepository: BookRepository?         { apiContainer?.bookRepository }
     var libraryRepository: LibraryRepository?   { apiContainer?.libraryRepository }
-    var playbackRepository: PlaybackRepository  { PlaybackRepository.shared }
-    var bookmarkRepository: BookmarkRepository  { BookmarkRepository.shared }
+
+    // MARK: - Repository protocol accessors
+    //
+    // Typed against the protocol, not the concrete class.
+    // This is the only place in the app that references the concrete singleton —
+    // all other call sites receive the protocol type.
+
+    var playbackRepository: any PlaybackRepositoryProtocol {
+        PlaybackRepository.shared
+    }
+
+    var bookmarkRepository: any BookmarkRepositoryProtocol {
+        BookmarkRepository.shared
+    }
 
     // MARK: - Factory
 
@@ -191,7 +206,6 @@ extension ViewModelFactory {
 // MARK: - ViewModel placeholder stubs
 
 extension BookDetailViewModel {
-    // No longer needs to construct a repository — just the manager
     static func placeholder(bookId: String, downloadManager: DownloadManager) -> BookDetailViewModel {
         BookDetailViewModel(
             bookId: bookId,

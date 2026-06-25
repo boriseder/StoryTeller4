@@ -1,47 +1,47 @@
-//
-//  BookmarkEnrichmentCoordinator.swift
-//  StoryTeller4
-//
-//  Created by Boris Eder on 02.05.26.
-//
-
 import Foundation
-import Combine
 
 // MARK: - BookmarkEnrichmentCoordinator
 //
-// Moved out of DependencyContainer where it was tangled with unrelated concerns.
 // Observes bookmark changes and pre-fetches book metadata so the Bookmarks tab
 // can display titles without a loading spinner on every row.
+//
+// Prefetch strategy change (actor refactor):
+//
+//   Before: Combine sink on `$bookmarks` (a @Published property) triggered
+//           prefetching reactively whenever the repository mutated.
+//
+//   After:  Pull-based. BookmarkViewModel calls `prefetchIfNeeded()` after
+//           every mutation (create, delete, sync, initial load). This is
+//           equivalent in practice — mutations always go through the ViewModel —
+//           and removes the Combine dependency entirely.
+//
+//   The coordinator never subscribes to anything. It only reads snapshots
+//   via the protocol's synchronous `getAllBookmarks()` getter.
 
 @MainActor
 @Observable
 final class BookmarkEnrichmentCoordinator {
 
+    // MARK: - State
+
     private(set) var bookCache: [String: Book] = [:]
 
-    private let bookmarkRepository: BookmarkRepository
+    // MARK: - Dependencies
+
+    private let bookmarkRepository: any BookmarkRepositoryProtocol
     private let bookRepository: BookRepository
     private let downloadManager: DownloadManager
 
-    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
+    // MARK: - Init
 
     init(
-        bookmarkRepository: BookmarkRepository,
+        bookmarkRepository: any BookmarkRepositoryProtocol,
         bookRepository: BookRepository,
         downloadManager: DownloadManager
     ) {
         self.bookmarkRepository = bookmarkRepository
         self.bookRepository = bookRepository
         self.downloadManager = downloadManager
-
-        bookmarkRepository.$bookmarks
-            .sink { [weak self] bookmarksMap in
-                Task { [weak self] in
-                    await self?.prefetchMissingBooks(for: bookmarksMap)
-                }
-            }
-            .store(in: &cancellables)
     }
 
     // MARK: - Public Query API
@@ -54,7 +54,7 @@ final class BookmarkEnrichmentCoordinator {
 
     func allEnrichedBookmarks(sortedBy sort: BookmarkSortOption = .dateNewest) -> [EnrichedBookmark] {
         var enriched: [EnrichedBookmark] = []
-        for (id, bookmarks) in bookmarkRepository.bookmarks {
+        for (id, bookmarks) in bookmarkRepository.getAllBookmarks() {
             let book = bookCache[id]
             for bookmark in bookmarks {
                 enriched.append(EnrichedBookmark(bookmark: bookmark, book: book))
@@ -64,21 +64,28 @@ final class BookmarkEnrichmentCoordinator {
     }
 
     func groupedEnrichedBookmarks() -> [BookmarkGroup] {
-        var groups: [String: BookmarkGroup] = [:]
-        for (libraryItemId, bookmarks) in bookmarkRepository.bookmarks {
+        bookmarkRepository.getAllBookmarks().map { (libraryItemId, bookmarks) in
             let book = bookCache[libraryItemId]
             let enriched = bookmarks.map { EnrichedBookmark(bookmark: $0, book: book) }
-            groups[libraryItemId] = BookmarkGroup(id: libraryItemId, book: book, bookmarks: enriched)
+            return BookmarkGroup(id: libraryItemId, book: book, bookmarks: enriched)
         }
-        return groups.values.sorted { ($0.book?.title ?? "") < ($1.book?.title ?? "") }
+        .sorted { ($0.book?.title ?? "") < ($1.book?.title ?? "") }
     }
 
-    // MARK: - Pre-fetch
+    // MARK: - Prefetch (called by BookmarkViewModel after every mutation)
 
+    /// Prefetches book metadata for any libraryItemId not yet in the cache.
+    /// Safe to call frequently — exits immediately for already-cached entries.
+    func prefetchIfNeeded() async {
+        let allBookmarks = bookmarkRepository.getAllBookmarks()
+        await prefetchMissingBooks(for: allBookmarks)
+    }
+
+    /// Prefetch a single known bookId — used when jumping to a bookmark
+    /// from a context where only the bookId is available.
     func prefetchBook(_ bookId: String) async {
         guard bookCache[bookId] == nil else { return }
 
-        // Downloads first — no network needed
         if let book = downloadManager.downloadedBooks.first(where: { $0.id == bookId }) {
             bookCache[bookId] = book
             return
