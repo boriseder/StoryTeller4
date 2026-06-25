@@ -194,7 +194,10 @@ extension ViewModelFactory {
                 keychainService: services.keychainService,
                 authService: services.authService
             ),
-            logoutUseCase: LogoutUseCase(keychainService: services.keychainService),
+            logoutUseCase: LogoutUseCase(
+                settingsRepository: SettingsRepository(),
+                onContainerReset: { await MainActor.run { DependencyContainer.shared.reset() } }
+            ),
             serverValidator: services.serverValidator,
             coverCacheManager: services.coverCacheManager,
             downloadManager: services.downloadManager,
