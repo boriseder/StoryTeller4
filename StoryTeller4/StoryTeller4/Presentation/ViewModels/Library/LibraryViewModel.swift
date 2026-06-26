@@ -5,81 +5,69 @@ import Observation
 @MainActor
 @Observable
 class LibraryViewModel {
-    // MARK: - Published Properties
+    // MARK: - UI State
     var books: [Book] = []
     var filterState = LibraryFilterState()
     var isLoading = false
     var errorMessage: String?
     var showingErrorAlert = false
-    
-    // FIX: Store the current library locally since Repository access is async
     var currentLibrary: Library?
-    
-    // For smooth transistions
+
+    // For smooth transitions
     var contentLoaded = false
-    
-    // MARK: - Dependencies
+
+    // MARK: - Dependencies (alle Domain-Layer Protocols)
     private let fetchBooksUseCase: FetchBooksUseCaseProtocol
-    private let downloadRepository: DownloadRepository
+    private let playBookUseCase: PlayBookUseCaseProtocol
     private let libraryRepository: LibraryRepositoryProtocol
-    
-    let api: AudiobookshelfClient
-    let downloadManager: DownloadManager
-    let player: AudioPlayer
+    private let coverPreloadService: CoverPreloadServiceProtocol
+    private let downloadManager: DownloadManager // bleibt für filteredAndSortedBooks
+
     let appState: AppStateManager
     let onBookSelected: () -> Void
-    
+
     // MARK: - Computed Properties
     var libraryName: String {
         currentLibrary?.name ?? "Library"
     }
-    
+
     var filteredAndSortedBooks: [Book] {
-        // FIX: Now matches() exists on LibraryFilterState
         let filtered = books.filter { filterState.matches(book: $0, downloadManager: downloadManager) }
         return filterState.applySorting(to: filtered)
     }
-    
-    var totalBooksCount: Int {
-        books.count
-    }
-    
-    var downloadedBooksCount: Int {
-        downloadManager.downloadedBooks.count
-    }
-    
+
+    var totalBooksCount: Int { books.count }
+
+    var downloadedBooksCount: Int { downloadManager.downloadedBooks.count }
+
     // MARK: - Init
     init(
         fetchBooksUseCase: FetchBooksUseCaseProtocol,
-        downloadRepository: DownloadRepository,
+        playBookUseCase: PlayBookUseCaseProtocol,
         libraryRepository: LibraryRepositoryProtocol,
-        api: AudiobookshelfClient,
+        coverPreloadService: CoverPreloadServiceProtocol,
         downloadManager: DownloadManager,
-        player: AudioPlayer,
         appState: AppStateManager,
         onBookSelected: @escaping () -> Void
     ) {
         self.fetchBooksUseCase = fetchBooksUseCase
-        self.downloadRepository = downloadRepository
+        self.playBookUseCase = playBookUseCase
         self.libraryRepository = libraryRepository
-        self.api = api
+        self.coverPreloadService = coverPreloadService
         self.downloadManager = downloadManager
-        self.player = player
         self.appState = appState
         self.onBookSelected = onBookSelected
     }
-    
+
     // MARK: - Actions
     func loadBooksIfNeeded() async {
-        if books.isEmpty {
-            await loadBooks()
-        }
+        if books.isEmpty { await loadBooks() }
     }
-    
+
     func loadBooks() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
             guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 books = []
@@ -87,79 +75,56 @@ class LibraryViewModel {
                 isLoading = false
                 return
             }
-            
-            // Update local state
-            self.currentLibrary = selectedLibrary
-            
-            // Try network fetch
+
+            currentLibrary = selectedLibrary
+
             let fetchedBooks = try await fetchBooksUseCase.execute(
                 libraryId: selectedLibrary.id,
                 collapseSeries: false
             )
-            
+
             withAnimation(.easeInOut) {
                 books = fetchedBooks
             }
-            
-            // Preload covers for visible books (first 20)
-            CoverPreloadHelpers.preloadIfNeeded(
-                books: Array(fetchedBooks.prefix(20)),
-                api: api,
-                downloadManager: downloadManager
-            )
-            
+
+            coverPreloadService.preloadCovers(for: Array(fetchedBooks.prefix(20)), limit: 20)
+
         } catch let error as RepositoryError {
             handleRepositoryError(error)
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
         }
-        
+
         isLoading = false
     }
-    
-    func playBook(
-        _ book: Book,
-        appState: AppStateManager,
-        restoreState: Bool = true,
-        autoPlay: Bool = false
-    ) async {
+
+    func playBook(_ book: Book, restoreState: Bool = true, autoPlay: Bool = false) async {
         do {
-            let playUseCase = PlayBookUseCase()
-            try await playUseCase.execute(
+            try await playBookUseCase.execute(
                 book: book,
-                api: api,
-                player: player,
-                downloadManager: downloadManager,
-                appState: appState,
                 restoreState: restoreState,
                 autoPlay: autoPlay
             )
             onBookSelected()
-            
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
         }
     }
-    
+
     // MARK: - Filters
     func toggleDownloadFilter() {
-        withAnimation {
-            filterState.showDownloadedOnly.toggle()
-        }
+        withAnimation { filterState.showDownloadedOnly.toggle() }
     }
-    
+
     func toggleSeriesMode() {
-        withAnimation {
-            filterState.showSeriesGrouped.toggle()
-        }
+        withAnimation { filterState.showSeriesGrouped.toggle() }
     }
-    
-    func resetFilters() {
-        filterState.reset()
-    }
-    
+
+    func resetFilters() { filterState.reset() }
+
+    // MARK: - Private
     private func handleRepositoryError(_ error: RepositoryError) {
         errorMessage = error.localizedDescription
         showingErrorAlert = true
@@ -171,13 +136,19 @@ class LibraryViewModel {
 extension LibraryViewModel {
     @MainActor
     static var placeholder: LibraryViewModel {
-        LibraryViewModel(
+        let api = AudiobookshelfClient(baseURL: "", authToken: "")
+        let downloadManager = DownloadManager()
+        return LibraryViewModel(
             fetchBooksUseCase: FetchBooksUseCase(bookRepository: BookRepository.placeholder),
-            downloadRepository: DefaultDownloadRepository.placeholder,
+            playBookUseCase: PlayBookUseCase(
+                metadataService: BookMetadataService(api: api, downloadManager: downloadManager),
+                playbackService: PlaybackService(player: AudioPlayer(), api: api),
+                downloadManager: downloadManager,
+                appState: AppStateManager.shared
+            ),
             libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "http://placeholder", authToken: ""),
-            downloadManager: DownloadManager(),
-            player: AudioPlayer(),
+            coverPreloadService: CoverPreloadService.placeholder,
+            downloadManager: downloadManager,
             appState: AppStateManager.shared,
             onBookSelected: {}
         )

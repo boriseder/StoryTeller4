@@ -7,7 +7,11 @@ struct SeriesDetailView: View {
     @Environment(AppStateManager.self) private var appState
     @Environment(DependencyContainer.self) private var dependencies
 
-    // FIXED: Accept an injected container instead of hardcoding .shared
+    // Computed property auf View-Ebene – außerhalb jedes @ViewBuilder-Kontexts.
+    // Das umgeht das Swift/SwiftUI Bug mit @Observable + @State + dynamicMember in ViewBuilder.
+    private var downloadedCount: Int { _viewModel.wrappedValue.downloadedCount }
+    private var seriesBookCount: Int  { _viewModel.wrappedValue.seriesBooks.count }
+
     init(series: Series, container: DependencyContainer, onBookSelected: @escaping () -> Void) {
         _viewModel = State(initialValue: SeriesDetailViewModel(
             series: series,
@@ -49,11 +53,13 @@ struct SeriesDetailView: View {
                     .lineLimit(2)
 
                 if !viewModel.seriesBooks.isEmpty {
+                    let bookCount = seriesBookCount
+                    let downloaded = downloadedCount
                     HStack(spacing: DSLayout.elementGap) {
-                        Text("\(viewModel.seriesBooks.count) books")
+                        Text("\(bookCount) books")
 
-                        if viewModel.downloadedCount > 0 {
-                            Text("• \(viewModel.downloadedCount) downloaded")
+                        if downloaded > 0 {
+                            Text("• \(downloaded) downloaded")
                         }
 
                         if let duration = viewModel.seriesTotalDuration {
@@ -68,9 +74,7 @@ struct SeriesDetailView: View {
 
             Spacer()
 
-            Button {
-                dismiss()
-            } label: {
+            Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
                     .foregroundColor(.secondary)
@@ -84,23 +88,17 @@ struct SeriesDetailView: View {
     private var booksGridView: some View {
         ScrollView {
             LazyVGrid(columns: DSGridColumns.two, spacing: 0) {
+                // ForEach über Array-Value, kein Binding
                 ForEach(viewModel.seriesBooks, id: \.id) { book in
-                    let cardViewModel = BookCardViewModel(
-                        book: book,
-                        container: dependencies
-                    )
+                    let cardViewModel = BookCardViewModel(book: book, container: dependencies)
                     BookCardView(
                         viewModel: cardViewModel,
-                        api: viewModel.api,
+                        api: dependencies.apiClient,
                         onTap: {
-                            Task {
-                                await viewModel.playBook(book, appState: appState)
-                            }
+                            Task { await viewModel.playBook(book, appState: appState) }
                         },
                         onDownload: {
-                            Task {
-                                await viewModel.downloadBook(book)
-                            }
+                            Task { await viewModel.downloadBook(book) }
                         },
                         onDelete: {
                             viewModel.deleteBook(book.id)

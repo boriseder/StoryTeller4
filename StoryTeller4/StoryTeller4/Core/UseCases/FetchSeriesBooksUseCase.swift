@@ -4,14 +4,15 @@ protocol FetchSeriesBooksUseCaseProtocol: Sendable {
     func execute(libraryId: String, seriesId: String) async throws -> [Book]
 }
 
-class FetchSeriesBooksUseCase: FetchSeriesBooksUseCaseProtocol {
-    private let api: AudiobookshelfClient
-    
-    init(api: AudiobookshelfClient) {
-        self.api = api
+// BookRepository muss fetchSeriesBooks(libraryId:seriesId:) implementieren
+final class FetchSeriesBooksUseCase: FetchSeriesBooksUseCaseProtocol {
+    private let bookRepository: BookRepositoryProtocol
+
+    init(bookRepository: BookRepositoryProtocol) {
+        self.bookRepository = bookRepository
     }
-    
+
     func execute(libraryId: String, seriesId: String) async throws -> [Book] {
-        return try await api.series.fetchSeriesBooks(libraryId: libraryId, seriesId: seriesId)
+        return try await bookRepository.fetchSeriesBooks(libraryId: libraryId, seriesId: seriesId)
     }
 }

@@ -10,61 +10,48 @@ class SeriesViewModel {
     var isLoading = false
     var errorMessage: String?
     var showingErrorAlert = false
-    
-    // For smooth transistions
+
+    // For smooth transitions
     var contentLoaded = false
 
-    // MARK: - Dependencies
+    // MARK: - Dependencies (alle Domain-Layer Protocols)
     private let fetchSeriesUseCase: FetchSeriesUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCase
-    private let downloadRepository: DownloadRepository
+    private let playBookUseCase: PlayBookUseCaseProtocol
     private let libraryRepository: LibraryRepositoryProtocol
-    
-    let api: AudiobookshelfClient
-    let downloadManager: DownloadManager
-    let player: AudioPlayer
+
     let appState: AppStateManager
     let onBookSelected: () -> Void
-    
-    // MARK: - Computed Properties for UI
+
+    // MARK: - Computed Properties
     var filteredAndSortedSeries: [Series] {
         let filtered = series.filter { filterState.matchesSearchFilter($0) }
         return filterState.applySorting(to: filtered)
     }
-        
-    // MARK: - Init with DI
+
+    // MARK: - Init
     init(
         fetchSeriesUseCase: FetchSeriesUseCaseProtocol,
-        downloadRepository: DownloadRepository,
+        playBookUseCase: PlayBookUseCaseProtocol,
         libraryRepository: LibraryRepositoryProtocol,
-        api: AudiobookshelfClient,
-        downloadManager: DownloadManager,
-        player: AudioPlayer,
         appState: AppStateManager,
         onBookSelected: @escaping () -> Void
     ) {
         self.fetchSeriesUseCase = fetchSeriesUseCase
-        self.playBookUseCase = PlayBookUseCase()
-        self.downloadRepository = downloadRepository
+        self.playBookUseCase = playBookUseCase
         self.libraryRepository = libraryRepository
-        self.api = api
-        self.downloadManager = downloadManager
-        self.player = player
         self.appState = appState
         self.onBookSelected = onBookSelected
     }
-    
+
     // MARK: - Actions
     func loadSeriesIfNeeded() async {
-        if series.isEmpty {
-            await loadSeries()
-        }
+        if series.isEmpty { await loadSeries() }
     }
-    
+
     func loadSeries() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
             guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 series = []
@@ -72,52 +59,39 @@ class SeriesViewModel {
                 return
             }
 
-            // Try network fetch
-            let fetchedSeries = try await fetchSeriesUseCase.execute(
-                libraryId: selectedLibrary.id
-            )
-            
+            let fetchedSeries = try await fetchSeriesUseCase.execute(libraryId: selectedLibrary.id)
+
             withAnimation(.easeInOut) {
                 series = fetchedSeries
             }
-            
+
         } catch let error as RepositoryError {
-                handleRepositoryError(error)
+            handleRepositoryError(error)
         } catch {
-                errorMessage = error.localizedDescription
-                showingErrorAlert = true
+            errorMessage = error.localizedDescription
+            showingErrorAlert = true
         }
-        
+
         isLoading = false
     }
-    
 
-    func playBook(_ book: Book, appState: AppStateManager, restoreState: Bool = true) async {
+    func playBook(_ book: Book, restoreState: Bool = true, autoPlay: Bool = false) async {
         isLoading = true
-        
         do {
             try await playBookUseCase.execute(
                 book: book,
-                api: api,
-                player: player,
-                downloadManager: downloadManager,
-                appState: appState,
-                restoreState: restoreState
+                restoreState: restoreState,
+                autoPlay: autoPlay
             )
             onBookSelected()
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
         }
-        
         isLoading = false
     }
-    
-    func convertLibraryItemToBook(_ item: LibraryItem) -> Book? {
-        return api.converter.convertLibraryItemToBook(item)
-    }
-    
-    // MARK: - Error Handling
+
+    // MARK: - Private
     private func handleRepositoryError(_ error: RepositoryError) {
         errorMessage = error.localizedDescription
         showingErrorAlert = true
@@ -125,16 +99,21 @@ class SeriesViewModel {
     }
 }
 
+// MARK: - Placeholder
 extension SeriesViewModel {
     @MainActor
     static var placeholder: SeriesViewModel {
-        SeriesViewModel(
+        let api = AudiobookshelfClient(baseURL: "", authToken: "")
+        let downloadManager = DownloadManager()
+        return SeriesViewModel(
             fetchSeriesUseCase: FetchSeriesUseCase(bookRepository: BookRepository.placeholder),
-            downloadRepository: DefaultDownloadRepository.placeholder,
+            playBookUseCase: PlayBookUseCase(
+                metadataService: BookMetadataService(api: api, downloadManager: downloadManager),
+                playbackService: PlaybackService(player: AudioPlayer(), api: api),
+                downloadManager: downloadManager,
+                appState: AppStateManager.shared
+            ),
             libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "http://placeholder", authToken: ""),
-            downloadManager: DownloadManager(),
-            player: AudioPlayer(),
             appState: AppStateManager.shared,
             onBookSelected: {}
         )

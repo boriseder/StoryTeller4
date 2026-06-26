@@ -11,7 +11,11 @@ struct AuthorDetailView: View {
     @AppStorage("open_fullscreen_player") private var playerMode = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay = false
 
-    // FIXED: Accept a pre-built ViewModel instead of constructing it with .shared
+    // View-level properties umgehen @State + @Observable dynamicMember-Bug
+    private var downloadedCount: Int  { _viewModel.wrappedValue.downloadedCount }
+    private var totalDuration: Double { _viewModel.wrappedValue.totalDuration }
+    private var authorBooks: [Book]   { _viewModel.wrappedValue.authorBooks }
+
     init(viewModel: AuthorDetailViewModel) {
         _viewModel = State(initialValue: viewModel)
     }
@@ -36,24 +40,23 @@ struct AuthorDetailView: View {
                 authorHeaderView
 
                 ScrollView {
+                    // Lokale Kopie umgeht ForEach-Binding-Ambiguität mit @State @Observable
+                    let books = authorBooks
                     LazyVGrid(columns: DSGridColumns.two, spacing: DSLayout.contentGap) {
-                        ForEach(viewModel.authorBooks, id: \.id) { book in
+                        ForEach(books, id: \.id) { book in
                             let cardViewModel = BookCardViewModel(
                                 book: book,
                                 container: dependencies
                             )
                             BookCardView(
                                 viewModel: cardViewModel,
-                                api: viewModel.api,
+                                api: dependencies.apiClient,
                                 onTap: {
-                                    Task {
-                                        await viewModel.playBook(book, appState: appState)
-                                    }
+                                    Task { await viewModel.playBook(book, autoPlay: autoPlay) }
                                 },
                                 onDownload: {
-                                    Task {
-                                        await viewModel.downloadBook(book)
-                                    }
+                                    guard let api = dependencies.apiClient else { return }
+                                    Task { await viewModel.downloadBook(book, api: api) }
                                 },
                                 onDelete: {
                                     viewModel.deleteBook(book.id)
@@ -69,10 +72,14 @@ struct AuthorDetailView: View {
     }
 
     private var authorHeaderView: some View {
-        HStack(alignment: .center) {
+        let downloaded = downloadedCount
+        let duration   = totalDuration
+        let numBooks   = viewModel.author.numBooks ?? 0
+
+        return HStack(alignment: .center) {
             AuthorImageView(
                 author: viewModel.author,
-                api: viewModel.api,
+                api: dependencies.apiClient,
                 size: DSLayout.smallAvatar
             )
 
@@ -82,16 +89,16 @@ struct AuthorDetailView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                if !viewModel.authorBooks.isEmpty {
+                if !authorBooks.isEmpty {
                     HStack(spacing: DSLayout.elementGap) {
-                        Text("\(viewModel.author.numBooks ?? 0) \((viewModel.author.numBooks ?? 0) == 1 ? "Book" : "Books")")
+                        Text("\(numBooks) \(numBooks == 1 ? "Book" : "Books")")
 
-                        if viewModel.downloadedCount > 0 {
-                            Text(" • \(viewModel.downloadedCount) downloaded")
+                        if downloaded > 0 {
+                            Text(" • \(downloaded) downloaded")
                         }
 
-                        if viewModel.totalDuration > 0 {
-                            Text(" • \(TimeFormatter.formatTimeCompact(viewModel.totalDuration)) total")
+                        if duration > 0 {
+                            Text(" • \(TimeFormatter.formatTimeCompact(duration)) total")
                         }
                     }
                     .font(DSText.metadata)
@@ -102,9 +109,7 @@ struct AuthorDetailView: View {
 
             Spacer()
 
-            Button {
-                dismiss()
-            } label: {
+            Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(DSText.itemTitle)
                     .foregroundColor(.secondary)

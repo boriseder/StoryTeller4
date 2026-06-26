@@ -4,12 +4,24 @@ import Foundation
 //
 // Stateless struct. Assembles ViewModels from ServiceContainer + APIContainer.
 // No observable state, no re-renders triggered here.
+// AudiobookshelfClient bleibt hier – Factory ist Teil der Composition Root (Data Layer).
 
 @MainActor
 struct ViewModelFactory {
 
     let services: ServiceContainer
     let api: APIContainer
+
+    // MARK: - Shared helpers
+    // Zentraler Konstruktionspunkt – nicht in jedem make* duplizieren.
+
+    private func makeCoverPreloadService() -> CoverPreloadService {
+        CoverPreloadService(api: api.client, downloadManager: services.downloadManager)
+    }
+
+    private func makePlayBookUseCase() -> PlayBookUseCase {
+        services.makePlayBookUseCase(api: api.client)
+    }
 
     // MARK: - Tab ViewModels
 
@@ -18,15 +30,12 @@ struct ViewModelFactory {
             fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCase(
                 bookRepository: api.bookRepository
             ),
-            // Repository is accessed via the manager so the protocol seam is preserved.
-            // Falls back to placeholder if the manager has no repository yet (shouldn't
-            // happen in production since ServiceContainer wires it at init).
-            downloadRepository: services.downloadManager.repository ?? DefaultDownloadRepository.placeholder,
+            fetchLibraryStatsUseCase: FetchLibraryStatsUseCase(
+                libraryStatsRepository: LibraryStatsRepository(api: api.client)
+            ),
+            playBookUseCase: makePlayBookUseCase(),
             libraryRepository: api.libraryRepository,
-            bookRepository: api.bookRepository,
-            api: api.client,
-            downloadManager: services.downloadManager,
-            player: services.player,
+            coverPreloadService: makeCoverPreloadService(),
             appState: AppStateManager.shared,
             onBookSelected: { services.playerStateManager.showPlayerBasedOnSettings() }
         )
@@ -35,11 +44,10 @@ struct ViewModelFactory {
     func makeLibraryViewModel() -> LibraryViewModel {
         LibraryViewModel(
             fetchBooksUseCase: FetchBooksUseCase(bookRepository: api.bookRepository),
-            downloadRepository: services.downloadManager.repository ?? DefaultDownloadRepository.placeholder,
+            playBookUseCase: makePlayBookUseCase(),
             libraryRepository: api.libraryRepository,
-            api: api.client,
+            coverPreloadService: makeCoverPreloadService(),
             downloadManager: services.downloadManager,
-            player: services.player,
             appState: AppStateManager.shared,
             onBookSelected: { services.playerStateManager.showPlayerBasedOnSettings() }
         )
@@ -48,11 +56,8 @@ struct ViewModelFactory {
     func makeSeriesViewModel() -> SeriesViewModel {
         SeriesViewModel(
             fetchSeriesUseCase: FetchSeriesUseCase(bookRepository: api.bookRepository),
-            downloadRepository: services.downloadManager.repository ?? DefaultDownloadRepository.placeholder,
+            playBookUseCase: makePlayBookUseCase(),
             libraryRepository: api.libraryRepository,
-            api: api.client,
-            downloadManager: services.downloadManager,
-            player: services.player,
             appState: AppStateManager.shared,
             onBookSelected: { services.playerStateManager.showPlayerBasedOnSettings() }
         )
@@ -88,7 +93,6 @@ struct ViewModelFactory {
                 authService: services.authService,
                 keychainService: services.keychainService
             ),
-            fetchLibrariesUseCase: FetchLibrariesUseCase(),
             calculateStorageUseCase: CalculateStorageUseCase(
                 storageMonitor: services.storageMonitor,
                 downloadManager: services.downloadManager
@@ -106,7 +110,13 @@ struct ViewModelFactory {
             serverValidator: services.serverValidator,
             coverCacheManager: services.coverCacheManager,
             downloadManager: services.downloadManager,
-            settingsRepository: SettingsRepository()
+            settingsRepository: SettingsRepository(),
+            libraryRepositoryFactory: { baseURL, token in
+                LibraryRepository(
+                    api: AudiobookshelfClient(baseURL: baseURL, authToken: token),
+                    settingsRepository: SettingsRepository()
+                )
+            }
         )
     }
 
@@ -126,11 +136,9 @@ struct ViewModelFactory {
         AuthorDetailViewModel(
             bookRepository: api.bookRepository,
             libraryRepository: api.libraryRepository,
-            api: api.client,
+            playBookUseCase: makePlayBookUseCase(),
+            coverPreloadService: makeCoverPreloadService(),
             downloadManager: services.downloadManager,
-            player: services.player,
-            appState: AppStateManager.shared,
-            playBookUseCase: PlayBookUseCase(),
             author: author,
             onBookSelected: onBookSelected
         )

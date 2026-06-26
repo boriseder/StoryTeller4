@@ -15,30 +15,26 @@ class SeriesDetailViewModel {
     let onBookSelected: () -> Void
     var onDismiss: (() -> Void)?
 
+    // DependencyContainer bleibt vorerst – separater Befund, nicht in scope
     private let container: DependencyContainer
 
-    var player: AudioPlayer          { container.player }
+    var player: AudioPlayer              { container.player }
     var downloadManager: DownloadManager { container.downloadManager }
-
-    // libraryRepository is Optional on DependencyContainer now —
-    // guard at the call site rather than force-unwrapping.
-    private var libraryRepository: LibraryRepositoryProtocol? { container.libraryRepository }
-
-    var api: AudiobookshelfClient {
-        // Fall back to a placeholder client if called before login;
-        // in practice SeriesDetailView is only reachable after .ready.
-        container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
-    }
 
     var downloadedCount: Int {
         seriesBooks.filter { downloadManager.isBookDownloaded($0.id) }.count
     }
+    private var coverPreloadService: CoverPreloadServiceProtocol? {
+        guard let api = container.apiClient else { return nil }
+        return CoverPreloadService(api: api, downloadManager: container.downloadManager)
+    }
+
+    private var libraryRepository: LibraryRepositoryProtocol? { container.libraryRepository }
 
     private let fetchSeriesBooksUseCase: FetchSeriesBooksUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCase
+    private let playBookUseCase: PlayBookUseCaseProtocol
 
     // MARK: - Init from Series
-
     init(
         series: Series,
         container: DependencyContainer,
@@ -49,14 +45,16 @@ class SeriesDetailViewModel {
         self.seriesTotalDuration = series.formattedDuration
         self.container = container
         self.onBookSelected = onBookSelected
-        self.fetchSeriesBooksUseCase = FetchSeriesBooksUseCase(
+
+        let bookRepository = container.bookRepository
+            ?? BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: ""))
+        self.fetchSeriesBooksUseCase = FetchSeriesBooksUseCase(bookRepository: bookRepository)
+        self.playBookUseCase = container.services.makePlayBookUseCase(
             api: container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
         )
-        self.playBookUseCase = PlayBookUseCase()
     }
 
     // MARK: - Init from collapsed-series Book
-
     init(
         seriesBook: Book,
         container: DependencyContainer,
@@ -70,14 +68,16 @@ class SeriesDetailViewModel {
         self.seriesTotalDuration = nil
         self.container = container
         self.onBookSelected = onBookSelected
-        self.fetchSeriesBooksUseCase = FetchSeriesBooksUseCase(
+
+        let bookRepository = container.bookRepository
+            ?? BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: ""))
+        self.fetchSeriesBooksUseCase = FetchSeriesBooksUseCase(bookRepository: bookRepository)
+        self.playBookUseCase = container.services.makePlayBookUseCase(
             api: container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
         )
-        self.playBookUseCase = PlayBookUseCase()
     }
 
     // MARK: - Actions
-
     func loadSeriesBooks() async {
         guard let libraryRepository else {
             errorMessage = "Not logged in — cannot load series"
@@ -106,11 +106,8 @@ class SeriesDetailViewModel {
                 seriesBooks = books
             }
 
-            CoverPreloadHelpers.preloadIfNeeded(
-                books: books,
-                api: api,
-                downloadManager: downloadManager
-            )
+            coverPreloadService?.preloadCovers(for: books, limit: books.count)
+
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
@@ -121,27 +118,19 @@ class SeriesDetailViewModel {
 
     func playBook(_ book: Book, appState: AppStateManager) async {
         isLoading = true
-
         do {
-            try await playBookUseCase.execute(
-                book: book,
-                api: api,
-                player: player,
-                downloadManager: downloadManager,
-                appState: appState,
-                restoreState: true
-            )
+            try await playBookUseCase.execute(book: book, restoreState: true, autoPlay: false)
             onDismiss?()
             onBookSelected()
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
         }
-
         isLoading = false
     }
 
     func downloadBook(_ book: Book) async {
+        guard let api = container.apiClient else { return }
         await downloadManager.downloadBook(book, api: api)
     }
 

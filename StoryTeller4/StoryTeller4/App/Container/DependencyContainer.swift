@@ -3,36 +3,24 @@ import SwiftUI
 import Observation
 
 // MARK: - DependencyContainer
-//
-// The single environment object injected at the root of the app.
-// Owns ServiceContainer (long-lived, auth-independent) and APIContainer
-// (created after login, replaced on logout). Delegates everything else.
-//
-// Repository references are typed against protocols so production code
-// and tests work against the same interface seam.
-
 @MainActor
 @Observable
 final class DependencyContainer {
 
     // MARK: - Singleton
-
     static let shared = DependencyContainer()
 
     // MARK: - Containers
-
     let services: ServiceContainer
     private(set) var apiContainer: APIContainer?
     private(set) var isConfigured = false
 
     // MARK: - Init
-
     private init() {
         self.services = ServiceContainer()
     }
 
     // MARK: - Configuration
-
     func configureAPI(baseURL: String, token: String) {
         apiContainer = APIContainer(
             baseURL: baseURL,
@@ -55,7 +43,6 @@ final class DependencyContainer {
     }
 
     // MARK: - Convenience pass-throughs
-
     var player: AudioPlayer                     { services.player }
     var playerStateManager: PlayerStateManager  { services.playerStateManager }
     var sleepTimerService: SleepTimerService    { services.sleepTimerService }
@@ -67,29 +54,16 @@ final class DependencyContainer {
     var bookRepository: BookRepository?         { apiContainer?.bookRepository }
     var libraryRepository: LibraryRepository?   { apiContainer?.libraryRepository }
 
-    // MARK: - Repository protocol accessors
-    //
-    // Typed against the protocol, not the concrete class.
-    // This is the only place in the app that references the concrete singleton —
-    // all other call sites receive the protocol type.
-
-    var playbackRepository: any PlaybackRepositoryProtocol {
-        PlaybackRepository.shared
-    }
-
-    var bookmarkRepository: any BookmarkRepositoryProtocol {
-        BookmarkRepository.shared
-    }
+    var playbackRepository: any PlaybackRepositoryProtocol { PlaybackRepository.shared }
+    var bookmarkRepository: any BookmarkRepositoryProtocol { BookmarkRepository.shared }
 
     // MARK: - Factory
-
     var factory: ViewModelFactory? {
         guard let api = apiContainer else { return nil }
         return ViewModelFactory(services: services, api: api)
     }
 
-    // MARK: - ViewModel factories (backward-compatible names)
-
+    // MARK: - ViewModel factories
     func makeHomeViewModel() -> HomeViewModel {
         factory?.makeHomeViewModel() ?? HomeViewModel.placeholder
     }
@@ -125,7 +99,7 @@ final class DependencyContainer {
         onBookSelected: @escaping () -> Void
     ) -> AuthorDetailViewModel {
         factory?.makeAuthorDetailViewModel(author: author, onBookSelected: onBookSelected)
-            ?? AuthorDetailViewModel.placeholder(author: author)
+            ?? AuthorDetailViewModel.placeholder(author: author, services: services)
     }
 
     func makeSeriesDetailViewModel(
@@ -145,7 +119,6 @@ final class DependencyContainer {
     }
 
     // MARK: - Bookmark Enrichment
-
     func getEnrichedBookmarks(for libraryItemId: String) -> [EnrichedBookmark] {
         apiContainer?.bookmarkEnrichment.enrichedBookmarks(for: libraryItemId) ?? []
     }
@@ -164,15 +137,28 @@ final class DependencyContainer {
 }
 
 // MARK: - ServiceContainer convenience
-
 private extension DependencyContainer { }
 
 extension ServiceContainer {
     var bookRepository: BookRepository? { nil }
 }
 
-// MARK: - ViewModelFactory placeholder helpers
+// MARK: - Shared PlayBookUseCase factory
+// Zentraler Ort um PlayBookUseCase mit den richtigen Services zu bauen.
+// Verhindert Streuung von BookMetadataService/PlaybackService-Konstruktion.
+extension ServiceContainer {
+    @MainActor
+    func makePlayBookUseCase(api: AudiobookshelfClient) -> PlayBookUseCase {
+        PlayBookUseCase(
+            metadataService: BookMetadataService(api: api, downloadManager: downloadManager),
+            playbackService: PlaybackService(player: player, api: api),
+            downloadManager: downloadManager,
+            appState: AppStateManager.shared
+        )
+    }
+}
 
+// MARK: - ViewModelFactory placeholder helpers
 extension ViewModelFactory {
     static func makePlaceholderSettingsViewModel(services: ServiceContainer) -> SettingsViewModel {
         SettingsViewModel(
@@ -183,7 +169,6 @@ extension ViewModelFactory {
                 authService: services.authService,
                 keychainService: services.keychainService
             ),
-            fetchLibrariesUseCase: FetchLibrariesUseCase(),
             calculateStorageUseCase: CalculateStorageUseCase(
                 storageMonitor: services.storageMonitor,
                 downloadManager: services.downloadManager
@@ -201,13 +186,19 @@ extension ViewModelFactory {
             serverValidator: services.serverValidator,
             coverCacheManager: services.coverCacheManager,
             downloadManager: services.downloadManager,
-            settingsRepository: SettingsRepository()
+            settingsRepository: SettingsRepository(),
+            // Factory erzeugt ein frisches LibraryRepository wenn Credentials bekannt sind
+            libraryRepositoryFactory: { baseURL, token in
+                LibraryRepository(
+                    api: AudiobookshelfClient(baseURL: baseURL, authToken: token),
+                    settingsRepository: SettingsRepository()
+                )
+            }
         )
     }
 }
 
 // MARK: - ViewModel placeholder stubs
-
 extension BookDetailViewModel {
     static func placeholder(bookId: String, downloadManager: DownloadManager) -> BookDetailViewModel {
         BookDetailViewModel(
@@ -220,15 +211,14 @@ extension BookDetailViewModel {
 }
 
 extension AuthorDetailViewModel {
-    static func placeholder(author: Author) -> AuthorDetailViewModel {
-        AuthorDetailViewModel(
-            bookRepository: BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: "")),
+    static func placeholder(author: Author, services: ServiceContainer) -> AuthorDetailViewModel {
+        let placeholderApi = AudiobookshelfClient(baseURL: "", authToken: "")
+        return AuthorDetailViewModel(
+            bookRepository: BookRepository(api: placeholderApi),
             libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "", authToken: ""),
-            downloadManager: DownloadManager(),
-            player: AudioPlayer(),
-            appState: AppStateManager.shared,
-            playBookUseCase: PlayBookUseCase(),
+            playBookUseCase: services.makePlayBookUseCase(api: placeholderApi),
+            coverPreloadService: CoverPreloadService(api: placeholderApi, downloadManager: services.downloadManager),
+            downloadManager: services.downloadManager,
             author: author,
             onBookSelected: {}
         )

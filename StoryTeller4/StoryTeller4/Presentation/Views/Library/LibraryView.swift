@@ -6,16 +6,14 @@ struct LibraryView: View {
 
     @Environment(AppStateManager.self) var appState
     @Environment(ThemeManager.self) var theme
-    // FIXED: Read container from environment
     @Environment(DependencyContainer.self) var dependencies
 
     @State private var selectedSeries: Book?
     @State private var bookCardVMs: [BookCardViewModel] = []
     @State private var showBookmarks = false
+    @State private var showEmptyState = false
 
     @Binding var columnVisibility: NavigationSplitViewVisibility
-
-    @State private var showEmptyState = false
 
     @AppStorage("open_fullscreen_player") private var playerMode: Bool = false
     @AppStorage("auto_play_on_book_tap") private var autoPlay: Bool = false
@@ -29,7 +27,6 @@ struct LibraryView: View {
                     .transition(.opacity)
                     .zIndex(0)
             }
-
             contentView
                 .transition(.opacity)
         }
@@ -41,9 +38,7 @@ struct LibraryView: View {
             placement: .automatic,
             prompt: "Search books..."
         )
-        .refreshable {
-            await viewModel.loadBooks()
-        }
+        .refreshable { await viewModel.loadBooks() }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showBookmarks.toggle() }) {
@@ -54,9 +49,7 @@ struct LibraryView: View {
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: DSLayout.contentGap) {
-                    if !viewModel.books.isEmpty {
-                        filterAndSortMenu
-                    }
+                    if !viewModel.books.isEmpty { filterAndSortMenu }
                     SettingsButton()
                 }
             }
@@ -65,7 +58,6 @@ struct LibraryView: View {
             await viewModel.loadBooksIfNeeded()
             updateBookCardViewModels()
         }
-        // FIXED: Pass injected container into SeriesDetailView instead of .shared
         .sheet(item: $selectedSeries) { book in
             SeriesDetailView(
                 seriesBook: book,
@@ -115,7 +107,8 @@ struct LibraryView: View {
                     ForEach(bookCardVMs) { bookVM in
                         BookCardView(
                             viewModel: bookVM,
-                            api: viewModel.api,
+                            // api kommt aus dem Container, nicht aus dem ViewModel
+                            api: dependencies.apiClient,
                             onTap: { handleBookTap(bookVM.book) },
                             onDownload: { startDownload(bookVM.book) },
                             onDelete: { deleteDownload(bookVM.book) }
@@ -123,8 +116,7 @@ struct LibraryView: View {
                     }
                 }
 
-                Spacer()
-                    .frame(height: DSLayout.miniPlayerHeight)
+                Spacer().frame(height: DSLayout.miniPlayerHeight)
             }
             .scrollIndicators(.hidden)
             .padding(.horizontal, DSLayout.screenPadding)
@@ -134,10 +126,7 @@ struct LibraryView: View {
     private func updateBookCardViewModels() {
         let books = viewModel.filteredAndSortedBooks
         Task { @MainActor in
-            let newVMs = books.map { book in
-                BookCardViewModel(book: book, container: dependencies)
-            }
-            self.bookCardVMs = newVMs
+            bookCardVMs = books.map { BookCardViewModel(book: $0, container: dependencies) }
         }
     }
 
@@ -146,24 +135,24 @@ struct LibraryView: View {
             selectedSeries = book
         } else {
             Task {
-                await viewModel.playBook(
-                    book,
-                    appState: appState,
-                    autoPlay: autoPlay
-                )
+                // appState nicht mehr als Parameter – PlayBookUseCase hat ihn bereits injiziert
+                await viewModel.playBook(book, autoPlay: autoPlay)
             }
         }
     }
 
     private func startDownload(_ book: Book) {
+        guard let api = dependencies.apiClient else { return }
         Task {
-            await viewModel.downloadManager.downloadBook(book, api: viewModel.api)
+            await dependencies.downloadManager.downloadBook(book, api: api)
         }
     }
 
     private func deleteDownload(_ book: Book) {
-        viewModel.downloadManager.deleteBook(book.id)
+        dependencies.downloadManager.deleteBook(book.id)
     }
+
+    // MARK: - Filter Menu (unverändert)
 
     private var filterAndSortMenu: some View {
         Menu {
@@ -180,7 +169,6 @@ struct LibraryView: View {
                         }
                     }
                 }
-
                 Button {
                     viewModel.filterState.sortAscending.toggle()
                     viewModel.filterState.saveToDefaults()
@@ -191,13 +179,9 @@ struct LibraryView: View {
                     )
                 }
             }
-
             Divider()
-
             Section("FILTER") {
-                Button {
-                    viewModel.toggleDownloadFilter()
-                } label: {
+                Button { viewModel.toggleDownloadFilter() } label: {
                     if viewModel.filterState.showDownloadedOnly {
                         Label("Show all books", systemImage: "books.vertical")
                     } else {
@@ -205,13 +189,9 @@ struct LibraryView: View {
                     }
                 }
             }
-
             Divider()
-
             Section("VIEW") {
-                Button {
-                    viewModel.toggleSeriesMode()
-                } label: {
+                Button { viewModel.toggleSeriesMode() } label: {
                     Label(
                         "Group series",
                         systemImage: viewModel.filterState.showSeriesGrouped
@@ -220,13 +200,10 @@ struct LibraryView: View {
                     )
                 }
             }
-
             if viewModel.filterState.hasActiveFilters {
                 Divider()
                 Button(role: .destructive) {
-                    withAnimation(.spring(response: 0.3)) {
-                        viewModel.resetFilters()
-                    }
+                    withAnimation(.spring(response: 0.3)) { viewModel.resetFilters() }
                 } label: {
                     Label("Reset all filters", systemImage: "arrow.counterclockwise")
                 }
@@ -235,34 +212,32 @@ struct LibraryView: View {
             ZStack {
                 Circle()
                     .fill(viewModel.filterState.hasActiveFilters
-                          ? Color.accentColor.opacity(0.15)
-                          : Color.clear)
+                          ? Color.accentColor.opacity(0.15) : Color.clear)
                     .frame(width: 32, height: 32)
-
                 Image(systemName: viewModel.filterState.hasActiveFilters
                       ? "line.3.horizontal.decrease.circle.fill"
                       : "line.3.horizontal.decrease.circle")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundColor(viewModel.filterState.hasActiveFilters ? .accentColor : .primary)
-
                 if viewModel.filterState.hasActiveFilters {
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.orange, .red],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(LinearGradient(
+                            colors: [.orange, .red],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
                         .frame(width: 10, height: 10)
                         .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
                         .offset(x: 10, y: -10)
                 }
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.filterState.hasActiveFilters)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7),
+                       value: viewModel.filterState.hasActiveFilters)
         }
     }
 }
+
+// MARK: - Supporting Views (unverändert)
 
 struct FilterStatusBannerView: View {
     let count: Int
@@ -275,13 +250,10 @@ struct FilterStatusBannerView: View {
                 .font(.system(size: DSLayout.icon))
                 .foregroundColor(.orange)
                 .frame(width: DSLayout.largeIcon, height: DSLayout.largeIcon)
-
             Text("Show \(count) of \(totalDownloaded) downloaded books")
                 .font(DSText.footnote)
                 .foregroundColor(.secondary)
-
             Spacer()
-
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: DSLayout.smallIcon))
@@ -301,50 +273,29 @@ struct SeriesStatusBannerView: View {
     let books: [Book]
     let onDismiss: () -> Void
 
-    private var seriesCount: Int {
-        books.lazy.filter { $0.isCollapsedSeries }.count
-    }
-
-    private var booksCount: Int {
-        books.count - seriesCount
-    }
+    private var seriesCount: Int { books.lazy.filter { $0.isCollapsedSeries }.count }
+    private var booksCount: Int  { books.count - seriesCount }
 
     var body: some View {
         HStack(spacing: DSLayout.contentGap) {
             Image(systemName: "rectangle.stack.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.blue)
-
             if seriesCount > 0 && booksCount > 0 {
-                Text("Show \(seriesCount) Series • \(booksCount) Books")
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
+                Text("Show \(seriesCount) Series • \(booksCount) Books").font(.subheadline)
             } else if seriesCount > 0 {
-                Text("Show \(seriesCount) Series")
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
+                Text("Show \(seriesCount) Series").font(.subheadline)
             } else {
-                Text("Show \(booksCount) books")
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
+                Text("Show \(booksCount) books").font(.subheadline)
             }
-
             Spacer()
-
             Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                Image(systemName: "xmark").font(.system(size: 14)).foregroundColor(.secondary)
             }
         }
         .padding(.horizontal, DSLayout.screenPadding)
         .padding(.vertical, 8)
         .background(.regularMaterial)
-        .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color(.separator)),
-            alignment: .bottom
-        )
+        .overlay(Rectangle().frame(height: 1).foregroundColor(Color(.separator)), alignment: .bottom)
     }
 }

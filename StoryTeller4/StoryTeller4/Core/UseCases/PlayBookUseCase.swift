@@ -1,24 +1,26 @@
 import Foundation
 
+// MARK: - PlaybackMode
 enum PlaybackMode: CustomStringConvertible, Sendable {
     case online
     case offline
     case unavailable
-    
+
     var description: String {
         switch self {
-        case .online: return "online"
-        case .offline: return "offline"
+        case .online:      return "online"
+        case .offline:     return "offline"
         case .unavailable: return "unavailable"
         }
     }
 }
 
+// MARK: - Errors
 enum PlayBookError: LocalizedError, Sendable {
     case notAvailableOffline(String)
     case fetchFailed(Error)
     case bookNotDownloadedOfflineOnly(String)
-    
+
     var errorDescription: String? {
         switch self {
         case .notAvailableOffline(let title):
@@ -31,119 +33,91 @@ enum PlayBookError: LocalizedError, Sendable {
     }
 }
 
-protocol PlayBookUseCaseProtocol: Sendable {
-    @MainActor func execute(
+// MARK: - Protocol (Domain Layer)
+@MainActor
+protocol PlayBookUseCaseProtocol: AnyObject {
+    func execute(
         book: Book,
-        api: AudiobookshelfClient,
-        player: AudioPlayer,
-        downloadManager: DownloadManager,
-        appState: AppStateManager,
         restoreState: Bool,
         autoPlay: Bool
     ) async throws
 }
 
-final class PlayBookUseCase: PlayBookUseCaseProtocol, Sendable {
-    
-    @MainActor
+// MARK: - Implementation (Domain Layer)
+// Kein AudiobookshelfClient, kein AudioPlayer, kein DownloadManager direkt –
+// nur Domain-Protocols
+@MainActor
+final class PlayBookUseCase: PlayBookUseCaseProtocol {
+    private let metadataService: BookMetadataServiceProtocol
+    private let playbackService: PlaybackServiceProtocol
+    private let downloadManager: DownloadManager
+    private let appState: AppStateManager
+
+    init(
+        metadataService: BookMetadataServiceProtocol,
+        playbackService: PlaybackServiceProtocol,
+        downloadManager: DownloadManager,
+        appState: AppStateManager
+    ) {
+        self.metadataService = metadataService
+        self.playbackService = playbackService
+        self.downloadManager = downloadManager
+        self.appState = appState
+    }
+
     func execute(
         book: Book,
-        api: AudiobookshelfClient,
-        player: AudioPlayer,
-        downloadManager: DownloadManager,
-        appState: AppStateManager,
         restoreState: Bool = true,
         autoPlay: Bool = false
     ) async throws {
-        
-        let playbackMode = determinePlaybackMode(
-            book: book,
-            downloadManager: downloadManager,
-            appState: appState
-        )
-        
+        let playbackMode = determinePlaybackMode(book: book)
+
         guard playbackMode != .unavailable else {
             throw PlayBookError.notAvailableOffline(book.title)
         }
-        
-        let fullBook = try await loadBookMetadata(
-            book: book,
-            api: api,
-            downloadManager: downloadManager,
-            isOffline: playbackMode == .offline
-        )
-        
-        player.configure(
-            baseURL: api.baseURLString,
-            authToken: api.authToken,
-            downloadManager: downloadManager
-        )
-        
-        let isOffline = playbackMode == .offline
-        await player.load(
+
+        let fullBook = try await loadBook(book: book, isOffline: playbackMode == .offline)
+
+        playbackService.configure(downloadManager: downloadManager)
+        await playbackService.load(
             book: fullBook,
-            isOffline: isOffline,
+            isOffline: playbackMode == .offline,
             restoreState: restoreState,
             autoPlay: autoPlay
         )
 
         AppLogger.general.debug("[PlayBookUseCase] Loaded: \(fullBook.title) (\(playbackMode))")
     }
-    
-    @MainActor
-    private func loadBookMetadata(
-        book: Book,
-        api: AudiobookshelfClient,
-        downloadManager: DownloadManager,
-        isOffline: Bool
-    ) async throws -> Book {
-        
-        let isDownloaded = downloadManager.isBookDownloaded(book.id)
-        
-        if isDownloaded {
-            do {
-                let localBook = try loadLocalMetadata(bookId: book.id, downloadManager: downloadManager)
-                return localBook
-            } catch {
-                AppLogger.general.debug("[PlayBookUseCase] Local metadata failed, trying online")
-            }
-        }
-        
-        guard !isOffline else {
-            throw PlayBookError.bookNotDownloadedOfflineOnly(book.title)
-        }
-        
-        do {
-            return try await api.books.fetchBookDetails(bookId: book.id, retryCount: 3)
-        } catch {
-            throw PlayBookError.fetchFailed(error)
-        }
-    }
-    
-    @MainActor
-    private func determinePlaybackMode(
-        book: Book,
-        downloadManager: DownloadManager,
-        appState: AppStateManager
-    ) -> PlaybackMode {
-        let isDownloaded = downloadManager.isBookDownloaded(book.id)
+
+    // MARK: - Private
+
+    private func determinePlaybackMode(book: Book) -> PlaybackMode {
+        let isDownloaded = metadataService.isBookDownloaded(book.id)
         let hasConnection = appState.isServerReachable
-        
+
         if isDownloaded { return .offline }
         if hasConnection { return .online }
         return .unavailable
     }
-    
-    @MainActor
-    private func loadLocalMetadata(bookId: String, downloadManager: DownloadManager) throws -> Book {
-        let bookDir = downloadManager.bookDirectory(for: bookId)
-        let metadataURL = bookDir.appendingPathComponent("metadata.json")
-        
-        guard FileManager.default.fileExists(atPath: metadataURL.path) else {
-            throw NSError(domain: "PlayBookUseCase", code: -1, userInfo: [NSLocalizedDescriptionKey: "Local metadata not found"])
+
+    private func loadBook(book: Book, isOffline: Bool) async throws -> Book {
+        let isDownloaded = metadataService.isBookDownloaded(book.id)
+
+        if isDownloaded {
+            if let localBook = try? metadataService.loadLocalMetadata(bookId: book.id) {
+                return localBook
+            }
+            AppLogger.general.debug("[PlayBookUseCase] Local metadata failed, trying online")
         }
-        
-        let data = try Data(contentsOf: metadataURL)
-        return try JSONDecoder().decode(Book.self, from: data)
+
+        guard !isOffline else {
+            throw PlayBookError.bookNotDownloadedOfflineOnly(book.title)
+        }
+
+        do {
+            return try await metadataService.fetchBookDetails(bookId: book.id)
+        } catch {
+            throw PlayBookError.fetchFailed(error)
+        }
     }
 }

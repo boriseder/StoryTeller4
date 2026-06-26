@@ -8,170 +8,133 @@ class AuthorDetailViewModel {
     var isLoading = false
     var errorMessage: String?
     var showingErrorAlert = false
-    
+
     let author: Author
-    let includeSeries = true
-    let includeBooks = true
-    
-    // Callbacks are not stored properties in @Observable usually, but we keep them for logic
-    // Note: Observation ignores non-stored properties or closures automatically
     let onBookSelected: () -> Void
     var onDismiss: (() -> Void)?
 
-    // MARK: - Dependencies
-    let api: AudiobookshelfClient
-    private let downloadManager: DownloadManager
-    private let player: AudioPlayer
-    private let appState: AppStateManager
+    // MARK: - Dependencies (nur Domain-Protocols + Services)
     private let bookRepository: BookRepositoryProtocol
-    private let playBookUseCase: PlayBookUseCase
     private let libraryRepository: LibraryRepositoryProtocol
-    
+    private let playBookUseCase: PlayBookUseCaseProtocol
+    private let coverPreloadService: CoverPreloadServiceProtocol
+    // downloadManager bleibt für downloadedCount, downloadBook, deleteBook
+    private let downloadManager: DownloadManager
+
+    // MARK: - Init
     init(
         bookRepository: BookRepositoryProtocol,
         libraryRepository: LibraryRepositoryProtocol,
-        api: AudiobookshelfClient,
+        playBookUseCase: PlayBookUseCaseProtocol,
+        coverPreloadService: CoverPreloadServiceProtocol,
         downloadManager: DownloadManager,
-        player: AudioPlayer,
-        appState: AppStateManager,
-        playBookUseCase: PlayBookUseCase,
         author: Author,
         onBookSelected: @escaping () -> Void
     ) {
         self.bookRepository = bookRepository
         self.libraryRepository = libraryRepository
-        self.api = api
-        self.downloadManager = downloadManager
-        self.player = player
-        self.appState = appState
         self.playBookUseCase = playBookUseCase
+        self.coverPreloadService = coverPreloadService
+        self.downloadManager = downloadManager
         self.author = author
         self.onBookSelected = onBookSelected
     }
-    
+
+    // MARK: - Computed Properties
     var downloadedCount: Int {
         authorBooks.filter { downloadManager.isBookDownloaded($0.id) }.count
     }
-    
+
     var totalDuration: Double {
         authorBooks.reduce(0.0) { total, book in
-            total + book.chapters.reduce(0.0) { chapterTotal, chapter in
-                chapterTotal + ((chapter.end ?? 0) - (chapter.start ?? 0))
-            }
+            total + book.chapters.reduce(0.0) { $0 + (($1.end ?? 0) - ($1.start ?? 0)) }
         }
     }
+
+    // MARK: - Actions
 
     func loadAuthorDetails() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
             guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 errorMessage = "No library selected"
                 showingErrorAlert = true
+                isLoading = false
                 return
             }
 
             defer { isLoading = false }
-            
-            // Fetch author details from the repository
-            let author = try await bookRepository.fetchAuthorDetails(
+
+            let authorDetails = try await bookRepository.fetchAuthorDetails(
                 authorId: author.id,
                 libraryId: selectedLibrary.id
             )
 
-            // Safely unwrap optional libraryItems, fallback to empty array
-            let items: [LibraryItem] = author.libraryItems ?? []
-
-            // Convert LibraryItem -> Book
-            let converter = DefaultBookConverter()
-            let books = items.compactMap { converter.convertLibraryItemToBook($0) }
-
-            // Sort alphabetically by book title
+            let items: [LibraryItem] = authorDetails.libraryItems ?? []
+            // LibraryItem.toAnyBook() aus LibraryItem+Domain.swift –
+            // kein Converter, kein api-Zugriff im ViewModel
+            let books = items.map { $0.toAnyBook() }
             let sortedBooks = books.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
 
-            // Assign to property with animation
             withAnimation(.easeInOut(duration: 0.3)) {
                 authorBooks = sortedBooks
             }
 
-            // Preload covers
-            CoverPreloadHelpers.preloadIfNeeded(
-                books: sortedBooks,
-                api: api,
-                downloadManager: downloadManager
-            )
+            coverPreloadService.preloadCovers(for: sortedBooks, limit: sortedBooks.count)
 
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
-            AppLogger.general.debug("Error loading author books: \(error)")
+            AppLogger.general.debug("Error loading author details: \(error)")
         }
     }
 
     func loadAuthorBooks() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
             guard let selectedLibrary = try await libraryRepository.getSelectedLibrary() else {
                 errorMessage = "No library selected"
                 showingErrorAlert = true
+                isLoading = false
                 return
             }
-        
+
             defer { isLoading = false }
             showingErrorAlert = false
-        
-            let allBooks = try await api.books.fetchBooks(
+
+            // fetchBooks geht über BookRepository – kein direkter api-Zugriff
+            let allBooks = try await bookRepository.fetchBooks(
                 libraryId: selectedLibrary.id,
-                limit: 0,
                 collapseSeries: false
             )
-            
-            let filteredBooks = allBooks.filter { book in
-                book.author?.localizedCaseInsensitiveContains(author.name) == true
-            }
-            
-            let sortedBooks = filteredBooks.sorted { book1, book2 in
-                book1.title.localizedCompare(book2.title) == .orderedAscending
-            }
-            
+
+            let filteredBooks = allBooks
+                .filter { $0.author?.localizedCaseInsensitiveContains(author.name) == true }
+                .sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+
             withAnimation(.easeInOut(duration: 0.3)) {
-                authorBooks = sortedBooks
+                authorBooks = filteredBooks
             }
-            
-            CoverPreloadHelpers.preloadIfNeeded(
-                books: sortedBooks,
-                api: api,
-                downloadManager: downloadManager
-            )
-            
+
+            coverPreloadService.preloadCovers(for: filteredBooks, limit: filteredBooks.count)
+
         } catch {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
             AppLogger.general.debug("Error loading author books: \(error)")
         }
-        
-        isLoading = false
     }
-    
-    func playBook(
-        _ book: Book,
-        appState: AppStateManager,
-        restoreState: Bool = true,
-        autoPlay: Bool = false
-    ) async {
+
+    func playBook(_ book: Book, restoreState: Bool = true, autoPlay: Bool = false) async {
         isLoading = true
-        
         do {
             try await playBookUseCase.execute(
                 book: book,
-                api: api,
-                player: player,
-                downloadManager: downloadManager,
-                appState: appState,
-                restoreState: true,
+                restoreState: restoreState,
                 autoPlay: autoPlay
             )
             onDismiss?()
@@ -180,14 +143,13 @@ class AuthorDetailViewModel {
             errorMessage = error.localizedDescription
             showingErrorAlert = true
         }
-        
         isLoading = false
     }
-    
-    func downloadBook(_ book: Book) async {
+
+    func downloadBook(_ book: Book, api: AudiobookshelfClient) async {
         await downloadManager.downloadBook(book, api: api)
     }
-    
+
     func deleteBook(_ bookId: String) {
         downloadManager.deleteBook(bookId)
     }

@@ -82,7 +82,7 @@ struct DownloadsView: View {
                         
                         BookCardView(
                             viewModel: BookCardViewModel(book: book, container: dependencies),
-                            api: viewModel.api,
+                            api: dependencies.apiClient,
                             onTap: {
                                 Task {
                                     await viewModel.playBook(
@@ -93,7 +93,7 @@ struct DownloadsView: View {
                             },
                             onDownload: {
                                 Task {
-                                    await viewModel.downloadManager.downloadBook(book, api: viewModel.api)
+                                    await viewModel.downloadManager.downloadBook(book, api: dependencies.apiClient!)
                                 }
                             },
                             onDelete: {

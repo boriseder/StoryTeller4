@@ -1,11 +1,18 @@
 import Foundation
 
-protocol FetchLibrariesUseCaseProtocol {
-    func execute(api: AudiobookshelfClient) async throws -> [Library]
+protocol FetchLibrariesUseCaseProtocol: Sendable {
+    func execute() async throws -> [Library]
 }
 
-class FetchLibrariesUseCase: FetchLibrariesUseCaseProtocol {
-    func execute(api: AudiobookshelfClient) async throws -> [Library] {
-        return try await api.libraries.fetchLibraries()
+// api wird aus dem UseCase entfernt – LibraryRepository kapselt den API-Zugriff bereits
+final class FetchLibrariesUseCase: FetchLibrariesUseCaseProtocol {
+    private let libraryRepository: LibraryRepositoryProtocol
+
+    init(libraryRepository: LibraryRepositoryProtocol) {
+        self.libraryRepository = libraryRepository
+    }
+
+    func execute() async throws -> [Library] {
+        return try await libraryRepository.getLibraries()
     }
 }
