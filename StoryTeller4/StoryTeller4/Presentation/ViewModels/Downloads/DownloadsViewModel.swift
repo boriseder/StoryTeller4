@@ -21,7 +21,8 @@ class DownloadsViewModel {
     let storageThreshold: Int64 = 1_000_000_000
 
     // MARK: - Dependencies
-    let downloadManager: DownloadManager
+    let downloadManager: DownloadManager                    // UI state observation
+    private let downloadUseCase: any DownloadBookUseCaseProtocol  // mutations → repository
     private let storageMonitor: StorageMonitor
     private let playBookUseCase: PlayBookUseCaseProtocol
     let onBookSelected: () -> Void
@@ -29,6 +30,7 @@ class DownloadsViewModel {
     // MARK: - Init
     init(
         downloadManager: DownloadManager,
+        downloadUseCase: any DownloadBookUseCaseProtocol,
         player: AudioPlayer,
         api: AudiobookshelfClient,
         appState: AppStateManager,
@@ -36,6 +38,7 @@ class DownloadsViewModel {
         onBookSelected: @escaping () -> Void
     ) {
         self.downloadManager = downloadManager
+        self.downloadUseCase = downloadUseCase
         self.storageMonitor = storageMonitor
         self.onBookSelected = onBookSelected
         self.playBookUseCase = PlayBookUseCase(
@@ -63,10 +66,10 @@ class DownloadsViewModel {
         showStorageWarning = availableStorage < storageThreshold
     }
 
-    // MARK: - Per-Book Download State Accessors
-    func downloadProgress(for book: Book) -> Double { downloadManager.progress(for: book.id) }
+    // MARK: - Per-Book Download State Accessors (DownloadManager — UI state, correct)
+    func downloadProgress(for book: Book) -> Double  { downloadManager.progress(for: book.id) }
     func downloadStage(for book: Book) -> DownloadStage { downloadManager.stage(for: book.id) }
-    func isDownloading(_ book: Book) -> Bool { downloadManager.isDownloadingBook(book.id) }
+    func isDownloading(_ book: Book) -> Bool         { downloadManager.isDownloadingBook(book.id) }
     func offlineStatus(for book: Book) -> OfflineStatus { downloadManager.getOfflineStatus(for: book.id) }
 
     // MARK: - Playback
@@ -84,7 +87,8 @@ class DownloadsViewModel {
         }
     }
 
-    // MARK: - Delete
+    // MARK: - Delete (routed through use case → repository)
+
     func requestDeleteBook(_ book: Book) {
         bookToDelete = book
         showingDeleteConfirmation = true
@@ -92,7 +96,7 @@ class DownloadsViewModel {
 
     func confirmDeleteBook() {
         guard let book = bookToDelete else { return }
-        downloadManager.deleteBook(book.id)
+        downloadUseCase.delete(bookId: book.id)
         bookToDelete = nil
         showingDeleteConfirmation = false
         refreshData()
@@ -111,16 +115,20 @@ class DownloadsViewModel {
         return f
     }()
 
-    func formatBytes(_ bytes: Int64) -> String { byteFormatter.string(fromByteCount: bytes) }
-    func getBookStorageSize(_ book: Book) -> String { formatBytes(downloadManager.getBookStorageSize(book.id)) }
+    func formatBytes(_ bytes: Int64) -> String        { byteFormatter.string(fromByteCount: bytes) }
+    func getBookStorageSize(_ book: Book) -> String   { formatBytes(downloadManager.getBookStorageSize(book.id)) }
 }
 
 // MARK: - Placeholder
 extension DownloadsViewModel {
     @MainActor
     static var placeholder: DownloadsViewModel {
-        DownloadsViewModel(
-            downloadManager: DownloadManager(),
+        let downloadManager = DownloadManager()
+        return DownloadsViewModel(
+            downloadManager: downloadManager,
+            downloadUseCase: DownloadBookUseCase(
+                repository: DefaultDownloadRepository.placeholder
+            ),
             player: AudioPlayer(),
             api: AudiobookshelfClient(baseURL: "", authToken: ""),
             appState: AppStateManager.shared,

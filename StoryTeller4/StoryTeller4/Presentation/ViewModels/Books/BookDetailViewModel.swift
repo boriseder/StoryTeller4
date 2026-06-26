@@ -26,7 +26,8 @@ class BookDetailViewModel {
 
     private let bookId: String
     private let bookRepository: BookRepository
-    private let downloadManager: DownloadManager
+    private let downloadManager: DownloadManager   // UI state observation only
+    private let downloadUseCase: any DownloadBookUseCaseProtocol
     private let api: AudiobookshelfClient
 
     // MARK: - Init
@@ -35,11 +36,13 @@ class BookDetailViewModel {
         bookId: String,
         bookRepository: BookRepository,
         downloadManager: DownloadManager,
+        downloadUseCase: any DownloadBookUseCaseProtocol,
         api: AudiobookshelfClient
     ) {
         self.bookId = bookId
         self.bookRepository = bookRepository
         self.downloadManager = downloadManager
+        self.downloadUseCase = downloadUseCase
         self.api = api
 
         loadBookDetails()
@@ -67,8 +70,7 @@ class BookDetailViewModel {
 
     // MARK: - Download State
     //
-    // Now reads from downloadManager.downloadStates via the new typed
-    // accessors instead of the old raw dictionaries.
+    // Reads from DownloadManager — legitimate use of the UI state layer.
 
     var downloadState: DetailDownloadState {
         guard let book else { return .notDownloaded }
@@ -78,7 +80,6 @@ class BookDetailViewModel {
         }
 
         if downloadManager.isDownloadingBook(book.id) {
-            // Uses the new named accessor — no dictionary indexing in view layer
             let progress = downloadManager.progress(for: book.id)
             return .downloading(progress: progress)
         }
@@ -88,12 +89,10 @@ class BookDetailViewModel {
 
     // MARK: - Computed Properties
 
-    var title: String       { book?.title ?? "Unknown Title" }
-    var author: String      { book?.author ?? "Unknown Author" }
+    var title: String        { book?.title ?? "Unknown Title" }
+    var author: String       { book?.author ?? "Unknown Author" }
     var hasDescription: Bool { !(book?.description?.isEmpty ?? true) }
-    var chapters: [Chapter] { book?.chapters ?? [] }
-
-    // MARK: - Stage / Status for UI (optional — expose if views need it)
+    var chapters: [Chapter]  { book?.chapters ?? [] }
 
     var downloadStage: DownloadStage {
         guard let book else { return .preparing }
@@ -105,22 +104,26 @@ class BookDetailViewModel {
         return downloadManager.statusMessage(for: book.id)
     }
 
-    // MARK: - Actions
+    // MARK: - Actions (routed through use case → repository, not DownloadManager)
 
     func downloadBook() {
         guard let book else { return }
         Task {
-            await downloadManager.downloadBook(book, api: api)
+            do {
+                try await downloadUseCase.execute(book: book, api: api)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     func cancelDownload() {
         guard let book else { return }
-        downloadManager.cancelDownload(for: book.id)
+        downloadUseCase.cancel(bookId: book.id)
     }
 
     func deleteDownloadedBook() {
         guard let book else { return }
-        downloadManager.deleteBook(book.id)
+        downloadUseCase.delete(bookId: book.id)
     }
 }

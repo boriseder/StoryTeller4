@@ -4,24 +4,12 @@ import Foundation
 //
 // Stateless struct. Assembles ViewModels from ServiceContainer + APIContainer.
 // No observable state, no re-renders triggered here.
-// AudiobookshelfClient bleibt hier – Factory ist Teil der Composition Root (Data Layer).
 
 @MainActor
 struct ViewModelFactory {
 
     let services: ServiceContainer
     let api: APIContainer
-
-    // MARK: - Shared helpers
-    // Zentraler Konstruktionspunkt – nicht in jedem make* duplizieren.
-
-    private func makeCoverPreloadService() -> CoverPreloadService {
-        CoverPreloadService(api: api.client, downloadManager: services.downloadManager)
-    }
-
-    private func makePlayBookUseCase() -> PlayBookUseCase {
-        services.makePlayBookUseCase(api: api.client)
-    }
 
     // MARK: - Tab ViewModels
 
@@ -31,7 +19,7 @@ struct ViewModelFactory {
                 bookRepository: api.bookRepository
             ),
             fetchLibraryStatsUseCase: FetchLibraryStatsUseCase(
-                libraryStatsRepository: LibraryStatsRepository(api: api.client)
+                libraryStatsRepository: api.libraryStatsRepository
             ),
             playBookUseCase: makePlayBookUseCase(),
             libraryRepository: api.libraryRepository,
@@ -72,8 +60,10 @@ struct ViewModelFactory {
     }
 
     func makeDownloadsViewModel() -> DownloadsViewModel {
-        DownloadsViewModel(
+        let repo = services.downloadManager.repository ?? DefaultDownloadRepository.placeholder
+        return DownloadsViewModel(
             downloadManager: services.downloadManager,
+            downloadUseCase: DownloadBookUseCase(repository: repo),
             player: services.player,
             api: api.client,
             appState: AppStateManager.shared,
@@ -85,7 +75,8 @@ struct ViewModelFactory {
     // MARK: - Detail ViewModels
 
     func makeSettingsViewModel() -> SettingsViewModel {
-        SettingsViewModel(
+        let settingsRepo = SettingsRepository()
+        return SettingsViewModel(
             testConnectionUseCase: TestConnectionUseCase(
                 connectionHealthChecker: services.connectionHealthChecker
             ),
@@ -104,13 +95,13 @@ struct ViewModelFactory {
                 authService: services.authService
             ),
             logoutUseCase: LogoutUseCase(
-                settingsRepository: SettingsRepository(),
+                settingsRepository: settingsRepo,
                 onContainerReset: { await MainActor.run { DependencyContainer.shared.reset() } }
             ),
             serverValidator: services.serverValidator,
             coverCacheManager: services.coverCacheManager,
             downloadManager: services.downloadManager,
-            settingsRepository: SettingsRepository(),
+            settingsRepository: settingsRepo,
             libraryRepositoryFactory: { baseURL, token in
                 LibraryRepository(
                     api: AudiobookshelfClient(baseURL: baseURL, authToken: token),
@@ -121,10 +112,12 @@ struct ViewModelFactory {
     }
 
     func makeBookDetailViewModel(bookId: String) -> BookDetailViewModel {
-        BookDetailViewModel(
+        let repo = services.downloadManager.repository ?? DefaultDownloadRepository.placeholder
+        return BookDetailViewModel(
             bookId: bookId,
             bookRepository: api.bookRepository,
             downloadManager: services.downloadManager,
+            downloadUseCase: DownloadBookUseCase(repository: repo),
             api: api.client
         )
     }
@@ -163,6 +156,32 @@ struct ViewModelFactory {
             seriesBook: seriesBook,
             container: DependencyContainer.shared,
             onBookSelected: onBookSelected
+        )
+    }
+
+    // MARK: - Private factory helpers
+    //
+    // Centralise repeated construction so each makeXxxViewModel() stays lean.
+
+    private func makePlayBookUseCase() -> some PlayBookUseCaseProtocol {
+        PlayBookUseCase(
+            metadataService: BookMetadataService(
+                api: api.client,
+                downloadManager: services.downloadManager
+            ),
+            playbackService: PlaybackService(
+                player: services.player,
+                api: api.client
+            ),
+            downloadManager: services.downloadManager,
+            appState: AppStateManager.shared
+        )
+    }
+
+    private func makeCoverPreloadService() -> some CoverPreloadServiceProtocol {
+        CoverPreloadService(
+            api: api.client,
+            downloadManager: services.downloadManager
         )
     }
 }

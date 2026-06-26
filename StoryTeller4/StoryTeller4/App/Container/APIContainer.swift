@@ -28,6 +28,7 @@ final class APIContainer {
 
     let bookRepository: BookRepository
     let libraryRepository: LibraryRepository
+    let libraryStatsRepository: any LibraryStatsRepositoryProtocol
     let playbackRepository: any PlaybackRepositoryProtocol
     let bookmarkRepository: any BookmarkRepositoryProtocol
 
@@ -51,6 +52,8 @@ final class APIContainer {
             api: client,
             settingsRepository: SettingsRepository()
         )
+
+        self.libraryStatsRepository = LibraryStatsRepository(api: client)
 
         // Configure the shared repositories with the authenticated API client.
         // `configure(api:)` is nonisolated and dispatches internally — safe to

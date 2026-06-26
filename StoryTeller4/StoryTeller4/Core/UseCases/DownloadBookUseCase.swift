@@ -1,37 +1,41 @@
 import Foundation
 
 protocol DownloadBookUseCaseProtocol: Sendable {
-    @MainActor func execute(book: Book, api: AudiobookshelfClient) async
+    @MainActor func execute(book: Book, api: AudiobookshelfClient) async throws
     @MainActor func cancel(bookId: String)
     @MainActor func delete(bookId: String)
 }
 
 // MARK: - DownloadBookUseCase
 //
-// Thin orchestration layer between ViewModels and DownloadManager.
-// ViewModels should prefer this over calling DownloadManager directly
-// so that the download entry-point is a single, testable seam.
+// Routes through DownloadRepository (data layer) instead of DownloadManager
+// (UI state layer). DownloadManager is a SwiftUI state holder — use cases
+// must not depend on it. The repository is the correct entry point for
+// download business logic.
+//
+// execute() now throws so callers can surface DownloadError.insufficientStorage
+// and other domain errors rather than silently swallowing them.
 
 final class DownloadBookUseCase: DownloadBookUseCaseProtocol, Sendable {
 
-    private let downloadManager: DownloadManager
+    private let repository: any DownloadRepository
 
-    init(downloadManager: DownloadManager) {
-        self.downloadManager = downloadManager
+    init(repository: any DownloadRepository) {
+        self.repository = repository
     }
 
     @MainActor
-    func execute(book: Book, api: AudiobookshelfClient) async {
-        await downloadManager.downloadBook(book, api: api)
+    func execute(book: Book, api: AudiobookshelfClient) async throws {
+        try await repository.downloadBook(book, api: api)
     }
 
     @MainActor
     func cancel(bookId: String) {
-        downloadManager.cancelDownload(for: bookId)
+        repository.cancelDownload(for: bookId)
     }
 
     @MainActor
     func delete(bookId: String) {
-        downloadManager.deleteBook(bookId)
+        repository.deleteBook(bookId)
     }
 }

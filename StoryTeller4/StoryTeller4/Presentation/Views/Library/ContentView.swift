@@ -286,7 +286,7 @@ struct ContentView: View {
            let authors = authorsViewModel,
            let downloads = downloadsViewModel
         {
-            @Bindable var appState = appState  // ← now inside a ViewBuilder, works correctly
+            @Bindable var appState = appState
             
             TabView(selection: $appState.selectedTab) {
                 Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {

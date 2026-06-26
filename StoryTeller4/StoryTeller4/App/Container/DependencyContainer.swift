@@ -201,11 +201,13 @@ extension ViewModelFactory {
 // MARK: - ViewModel placeholder stubs
 extension BookDetailViewModel {
     static func placeholder(bookId: String, downloadManager: DownloadManager) -> BookDetailViewModel {
-        BookDetailViewModel(
+        let placeholderApi = AudiobookshelfClient(baseURL: "", authToken: "")
+        return BookDetailViewModel(
             bookId: bookId,
-            bookRepository: BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: "")),
+            bookRepository: BookRepository(api: placeholderApi),
             downloadManager: downloadManager,
-            api: AudiobookshelfClient(baseURL: "", authToken: "")
+            downloadUseCase: DownloadBookUseCase(repository: downloadManager.repository!),
+            api: placeholderApi
         )
     }
 }
