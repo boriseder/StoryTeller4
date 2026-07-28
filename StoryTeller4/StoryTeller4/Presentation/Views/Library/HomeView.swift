@@ -315,7 +315,7 @@ struct AuthorCardView: View {
                     .foregroundColor(theme.textColor)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                    .frame(width: DSLayout.avatar)
+                    .frame(width: DSLayout.avatar, height: 40, alignment: .top)
             }
             .padding(.vertical, DSLayout.elementPadding)
             .transition(.opacity)
