@@ -45,7 +45,7 @@ struct StoryTeller4App: App {
     
     private func handleBecameActive() {
         AppLogger.general.info("[App] App became active")
-        NotificationCenter.default.post(name: .init("AppWillEnterForeground"), object: nil)
+        NotificationCenter.default.post(name: .appWillEnterForeground, object: nil)
     }
     
     private func handleWillResignActive() {

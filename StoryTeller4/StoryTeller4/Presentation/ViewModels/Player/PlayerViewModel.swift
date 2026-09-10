@@ -6,66 +6,42 @@ import Combine
 @Observable
 class PlayerViewModel {
     // MARK: - UI State
-    
-    var controlState = PlayerControlState()
+    var showingChaptersList: Bool = false
+    var showingSleepTimer: Bool = false
+    var showingPlaybackSettings: Bool = false
+    var isDraggingSlider: Bool = false
+    var sliderValue: Double = 0
     
     // MARK: - Dependencies
     let player: AudioPlayer
     let api: AudiobookshelfClient
     
-    // Convenience accessors for view binding
-    var showingChaptersList: Bool {
-        get { controlState.showingChaptersList }
-        set { controlState.showingChaptersList = newValue }
-    }
-    
-    var showingSleepTimer: Bool {
-        get { controlState.showingSleepTimer }
-        set { controlState.showingSleepTimer = newValue }
-    }
-    
-    var showingPlaybackSettings: Bool {
-        get { controlState.showingPlaybackSettings }
-        set { controlState.showingPlaybackSettings = newValue }
-    }
-    
-    var isDraggingSlider: Bool {
-        get { controlState.isDraggingSlider }
-        set { controlState.isDraggingSlider = newValue }
-    }
-    
-    var sliderValue: Double {
-        get { controlState.sliderValue }
-        set { controlState.sliderValue = newValue }
-    }
-    
     init(player: AudioPlayer, api: AudiobookshelfClient) {
         self.player = player
         self.api = api
-        
-        self.controlState.sliderValue = player.currentTime
+        self.sliderValue = player.currentTime
     }
     
     // MARK: - Actions
     func updateSliderValue(_ newValue: Double) {
-        controlState.updateSliderValue(newValue)
-        if !controlState.isDraggingSlider {
+        sliderValue = newValue
+        if !isDraggingSlider {
             player.seek(to: newValue)
         }
     }
     
     func onSliderEditingChanged(_ editing: Bool) {
         if editing {
-            controlState.startDragging()
+            isDraggingSlider = true
         } else {
-            controlState.stopDragging()
-            player.seek(to: controlState.sliderValue)
+            isDraggingSlider = false
+            player.seek(to: sliderValue)
         }
     }
     
     func updateSliderFromPlayer(_ time: Double) {
-        if !controlState.isDraggingSlider {
-            controlState.updateSliderValue(time)
+        if !isDraggingSlider {
+            sliderValue = time
         }
     }
 }

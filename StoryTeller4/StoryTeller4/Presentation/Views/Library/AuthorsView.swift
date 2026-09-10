@@ -47,17 +47,16 @@ struct AuthorsView: View {
         .task {
             await viewModel.loadAuthors()
         }
-        // FIXED: Use factory method on injected container, not .shared
         .sheet(item: $selectedAuthor) { author in
-            AuthorDetailView(
-                viewModel: dependencies.makeAuthorDetailViewModel(
-                    author: author,
-                    onBookSelected: { }
-                )
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.black.opacity(0.65))
+            if let authorVM = dependencies.makeAuthorDetailViewModel(
+                author: author,
+                onBookSelected: { }
+            ) {
+                AuthorDetailView(viewModel: authorVM)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(.ultraThinMaterial)
+            }
         }
     }
 }

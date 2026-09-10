@@ -16,12 +16,12 @@ class LibraryViewModel {
     // For smooth transitions
     var contentLoaded = false
 
-    // MARK: - Dependencies (alle Domain-Layer Protocols)
-    private let fetchBooksUseCase: FetchBooksUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCaseProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
-    private let coverPreloadService: CoverPreloadServiceProtocol
-    private let downloadManager: DownloadManager // bleibt für filteredAndSortedBooks
+    // MARK: - Dependencies (Domain Layer Protocols)
+    private let bookRepository: any BookRepositoryProtocol
+    private let playBookUseCase: any PlayBookUseCaseProtocol
+    private let libraryRepository: any LibraryRepositoryProtocol
+    private let coverPreloadService: any CoverPreloadServiceProtocol
+    private let downloadManager: DownloadManager
 
     let appState: AppStateManager
     let onBookSelected: () -> Void
@@ -32,7 +32,13 @@ class LibraryViewModel {
     }
 
     var filteredAndSortedBooks: [Book] {
-        let filtered = books.filter { filterState.matches(book: $0, downloadManager: downloadManager) }
+        let isOffline = !appState.isDeviceOnline || !appState.isServerReachable
+        let filtered = books.filter { book in
+            if isOffline {
+                return downloadManager.isBookDownloaded(book.id)
+            }
+            return filterState.matches(book: book, downloadManager: downloadManager)
+        }
         return filterState.applySorting(to: filtered)
     }
 
@@ -42,15 +48,15 @@ class LibraryViewModel {
 
     // MARK: - Init
     init(
-        fetchBooksUseCase: FetchBooksUseCaseProtocol,
-        playBookUseCase: PlayBookUseCaseProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
-        coverPreloadService: CoverPreloadServiceProtocol,
+        bookRepository: any BookRepositoryProtocol,
+        playBookUseCase: any PlayBookUseCaseProtocol,
+        libraryRepository: any LibraryRepositoryProtocol,
+        coverPreloadService: any CoverPreloadServiceProtocol,
         downloadManager: DownloadManager,
         appState: AppStateManager,
         onBookSelected: @escaping () -> Void
     ) {
-        self.fetchBooksUseCase = fetchBooksUseCase
+        self.bookRepository = bookRepository
         self.playBookUseCase = playBookUseCase
         self.libraryRepository = libraryRepository
         self.coverPreloadService = coverPreloadService
@@ -78,7 +84,7 @@ class LibraryViewModel {
 
             currentLibrary = selectedLibrary
 
-            let fetchedBooks = try await fetchBooksUseCase.execute(
+            let fetchedBooks = try await bookRepository.fetchBooks(
                 libraryId: selectedLibrary.id,
                 collapseSeries: false
             )
@@ -129,28 +135,5 @@ class LibraryViewModel {
         errorMessage = error.localizedDescription
         showingErrorAlert = true
         AppLogger.general.debug("[LibraryViewModel] Repository error: \(error)")
-    }
-}
-
-// MARK: - Placeholder
-extension LibraryViewModel {
-    @MainActor
-    static var placeholder: LibraryViewModel {
-        let api = AudiobookshelfClient(baseURL: "", authToken: "")
-        let downloadManager = DownloadManager()
-        return LibraryViewModel(
-            fetchBooksUseCase: FetchBooksUseCase(bookRepository: BookRepository.placeholder),
-            playBookUseCase: PlayBookUseCase(
-                metadataService: BookMetadataService(api: api, downloadManager: downloadManager),
-                playbackService: PlaybackService(player: AudioPlayer(), api: api),
-                downloadManager: downloadManager,
-                appState: AppStateManager.shared
-            ),
-            libraryRepository: LibraryRepository.placeholder,
-            coverPreloadService: CoverPreloadService.placeholder,
-            downloadManager: downloadManager,
-            appState: AppStateManager.shared,
-            onBookSelected: {}
-        )
     }
 }

@@ -2,117 +2,35 @@ import SwiftUI
 import Combine
 import AVFoundation
 
-
+// MARK: - Content View
+/// Root application container that orchestrates app bootstrapping and layout composition.
 struct ContentView: View {
     @Environment(AppStateManager.self) private var appState
     @Environment(ThemeManager.self) private var theme
     @Environment(DependencyContainer.self) private var dependencies
     
-    // MARK: - ViewModels
-    //
-    // These are nil until setupApp() has finished configuring the API client.
-    // Creating them before that point is pointless — they all receive a placeholder
-    // AudiobookshelfClient(baseURL: "", authToken: "") and immediately get thrown
-    // away and recreated anyway. By deferring creation we guarantee they are always
-    // built with real credentials.
     @State private var homeViewModel: HomeViewModel?
     @State private var libraryViewModel: LibraryViewModel?
     @State private var seriesViewModel: SeriesViewModel?
     @State private var authorsViewModel: AuthorsViewModel?
     @State private var downloadsViewModel: DownloadsViewModel?
-    
-    @State private var selectedTab: TabIndex = .home
     @State private var bookCount = 0
-    @State private var cancellables = Set<AnyCancellable>()
+    @State private var isMediaMode = true
+    @State var columnVisibility: NavigationSplitViewVisibility = .automatic
     
     private var player: AudioPlayer { dependencies.player }
     private var downloadManager: DownloadManager { dependencies.downloadManager }
     private var playerStateManager: PlayerStateManager { dependencies.playerStateManager }
-    
-    @State var columnVisibility: NavigationSplitViewVisibility = .automatic
-    
+
     var body: some View {
-
-        @Bindable var appState = appState
-
-        ZStack {
-            DynamicBackground()
-
-            switch appState.loadingState {
-
-            case .initial, .loadingCredentials, .credentialsFoundValidating, .loadingData:
-                LoadingView(message: "Loading data...")
-                    .padding(.bottom, 80)
-
-            case .noCredentialsSaved, .authenticationError:
-                Color.clear
-                    .onAppear {
-                        if UserDefaults.standard.string(forKey: "stored_username") != nil {
-                            Task { setupApp() }
-                        } else if appState.isFirstLaunch {
-                            appState.showingWelcome = true
-                        }
-                    }
-
-            case .networkError(_):
-                if bookCount > 0 {
-                    mainContent
-                        .onAppear {
-                            appState.selectedTab = .downloads
-                            appState.loadingState = .ready
-                        }
-                } else {
-                    NoDownloadsView()
-                }
-
-            case .ready:
-                mainContent
-            }
-        }
-        .onAppear(perform: setupApp)
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            if UserDefaults.standard.bool(forKey: "auto_cache_cleanup") {
-                Task { await CoverCacheManager.shared.optimizeCache() }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .init("ServerSettingsChanged"))) { _ in
-            appState.clearConnectionIssue()
-            Task { setupApp() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .init("ShowSettings"))) { _ in
-            appState.showingSettings = true
-        }
-        .onDisappear {
-            cancellables.removeAll()
-        }
-        .sheet(isPresented: $appState.showingSettings) {
-            NavigationStack {
-                SettingsView(viewModel: dependencies.makeSettingsViewModel())
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Done") {
-                                appState.showingSettings = false
-                            }
-                        }
-                    }
-            }
-        }
-        .sheet(isPresented: $appState.showingWelcome) {
-            WelcomeView(viewModel: dependencies.makeSettingsViewModel()) {
-            appState.showingWelcome = false
-            appState.isFirstLaunch = false
-            appState.showingSettings = false
-        }
+        RootCoordinatorView(bookCount: bookCount, setupApp: setupApp) {
+            mainContent
         }
     }
 
     // MARK: - Main Content
     @ViewBuilder
     private var mainContent: some View {
-        // Guard ensures we never render tabs with nil ViewModels.
-        // In practice this can't be reached before .ready, but the compiler
-        // needs the explicit unwrap.
         if let home = homeViewModel,
            let library = libraryViewModel,
            let series = seriesViewModel,
@@ -125,33 +43,19 @@ struct ContentView: View {
                 sleepTimerService: dependencies.sleepTimerService
             ) {
                 if DeviceType.current == .iPad {
-                    iPadLayout(
-                        home: home,
-                        library: library,
-                        series: series,
-                        authors: authors,
-                        downloads: downloads
-                    )
+                    iPadLayout(home: home, library: library, series: series, authors: authors, downloads: downloads)
                 } else {
-                    iPhoneLayout
+                    iPhoneLayout(home: home, library: library, series: series, authors: authors, downloads: downloads)
                 }
             }
-            // Preserve the modifier chain so .ignoresSafeArea() at the call site
-            // (case .ready: mainContent.ignoresSafeArea()) propagates through
-            // an unbroken chain into PlayerContainer's content — same role the
-            // original .environment(sleepTimerService) played before it moved
-            // to the initializer.
             .environment(dependencies.sleepTimerService)
         } else {
-            // setupApp() is in progress — show a spinner rather than
-            // crashing or rendering a broken state.
             LoadingView(message: "Loading data...")
                 .padding(.bottom, 80)
         }
     }
 
     // MARK: - iPad Layout
-
     private func iPadLayout(
         home: HomeViewModel,
         library: LibraryViewModel,
@@ -160,157 +64,51 @@ struct ContentView: View {
         downloads: DownloadsViewModel
     ) -> some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            iPadSidebarContent(library: library, series: series, downloads: downloads)
+            IPadSidebarView(library: library, series: series, downloads: downloads)
                 .environment(dependencies)
         } detail: {
-            selectedTabView(
-                home: home,
-                library: library,
-                series: series,
-                authors: authors,
-                downloads: downloads
-            )
+            selectedTabView(home: home, library: library, series: series, authors: authors, downloads: downloads)
         }
         .accentColor(theme.accent)
         .id(theme.accent)
     }
 
-    private func iPadSidebarContent(
+    // MARK: - iPhone Layout
+    private func iPhoneLayout(
+        home: HomeViewModel,
         library: LibraryViewModel,
         series: SeriesViewModel,
+        authors: AuthorsViewModel,
         downloads: DownloadsViewModel
     ) -> some View {
-        List {
-            Section {
-                Button(action: { appState.selectedTab = .home }) {
-                    HStack {
-                        Label("Explore", systemImage: "sharedwithyou")
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .listRowBackground(appState.selectedTab == .home ? Color.accentColor.opacity(0.15) : Color.clear)
-
-                Button(action: { appState.selectedTab = .library }) {
-                    HStack {
-                        Label("Library", systemImage: "books.vertical.fill")
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .listRowBackground(appState.selectedTab == .library ? Color.accentColor.opacity(0.15) : Color.clear)
-
-                Button(action: { appState.selectedTab = .series }) {
-                    HStack {
-                        Label("Series", systemImage: "play.square.stack.fill")
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .listRowBackground(appState.selectedTab == .series ? Color.accentColor.opacity(0.15) : Color.clear)
-
-                Button(action: { appState.selectedTab = .downloads }) {
-                    HStack {
-                        Label("Downloads", systemImage: "arrow.down.circle.fill")
-                        Spacer()
-                        if downloadManager.downloadedBooks.count > 0 {
-                            Text("\(downloadManager.downloadedBooks.count)")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor)
-                                .clipShape(Capsule())
+        selectedTabView(home: home, library: library, series: series, authors: authors, downloads: downloads)
+            .safeAreaInset(edge: .bottom) {
+                AdaptiveMediaTabBar(
+                    player: player,
+                    api: dependencies.apiClient,
+                    playerStateManager: playerStateManager,
+                    selectedTab: Bindable(appState).selectedTab,
+                    isMediaMode: $isMediaMode,
+                    onTabSelected: { tab in appState.selectedTab = tab },
+                    onExpandFullscreen: {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            playerStateManager.showFullscreen()
                         }
                     }
-                    .contentShape(Rectangle())
-                }
-                .listRowBackground(appState.selectedTab == .downloads ? Color.accentColor.opacity(0.15) : Color.clear)
-            }
-
-            Section("Quick Actions") {
-                Button(action: { appState.showingSettings = true }) {
-                    Label("Settings", systemImage: "gearshape")
-                }
-
-                if appState.selectedTab == .library || appState.selectedTab == .series {
-                    Button(action: {
-                        NotificationCenter.default.post(name: .init("RefreshCurrentView"), object: nil)
-                    }) {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                }
-            }
-
-            if appState.selectedTab == .library {
-                LibrarySidebarFilters(viewModel: library)
-            } else if appState.selectedTab == .series {
-                SeriesSidebarSort(viewModel: series)
-            }
-
-            if appState.selectedTab == .library || appState.selectedTab == .series || appState.selectedTab == .downloads {
-                Section("Library Info") {
-                    HStack {
-                        Image(systemName: "books.vertical.fill").foregroundColor(.blue)
-                        Text("Books")
-                        Spacer()
-                        Text("\(library.totalBooksCount)").foregroundColor(.secondary)
-                    }
-                    HStack {
-                        Image(systemName: "arrow.down.circle").foregroundColor(.green)
-                        Text("Downloaded")
-                        Spacer()
-                        Text("\(downloadManager.downloadedBooks.count)").foregroundColor(.secondary)
-                    }
-                    HStack {
-                        Image(systemName: appState.isDeviceOnline ? "icloud" : "icloud.slash")
-                            .foregroundColor(appState.isDeviceOnline ? .green : .red)
-                        Text("Status")
-                        Spacer()
-                        Text(appState.isDeviceOnline ? "Online" : "Offline").foregroundColor(.secondary)
-                    }
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .navigationTitle("StoryTeller")
-        .listStyle(.sidebar)
-    }
-
-    // MARK: - iPhone Layout
-    @ViewBuilder
-    private var iPhoneLayout: some View {
-        if let home = homeViewModel,
-           let library = libraryViewModel,
-           let series = seriesViewModel,
-           let authors = authorsViewModel,
-           let downloads = downloadsViewModel
-        {
-            @Bindable var appState = appState
-            
-            TabView(selection: $appState.selectedTab) {
-                Tab("Explore", systemImage: "sharedwithyou", value: TabIndex.home) {
-                    NavigationStack { HomeView(viewModel: home) }
-                }
-                Tab("Library", systemImage: "books.vertical.fill", value: TabIndex.library) {
-                    NavigationStack { LibraryView(viewModel: library, columnVisibility: $columnVisibility) }
-                }
-                Tab("Series", systemImage: "play.square.stack.fill", value: TabIndex.series) {
-                    NavigationStack { SeriesView(viewModel: series) }
-                }
-                Tab("Authors", systemImage: "person.2.fill", value: TabIndex.authors) {
-                    NavigationStack { AuthorsView(viewModel: authors) }
-                }
-                Tab("Downloads", systemImage: "arrow.down.circle.fill", value: TabIndex.downloads) {
-                    NavigationStack { DownloadsView(viewModel: downloads) }
-                }
+                )
             }
             .accentColor(theme.accent)
             .id(theme.accent)
-        }
+            .onChange(of: player.book) { _, newBook in
+                if newBook != nil {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isMediaMode = true
+                    }
+                }
+            }
     }
-    // MARK: - iPad Selected Tab
 
+    // MARK: - Selected Tab View
     @ViewBuilder
     private func selectedTabView(
         home: HomeViewModel,
@@ -333,28 +131,22 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - App Setup
-
+    // MARK: - App Setup & Bootstrapping
     private func setupApp() {
         Task { @MainActor in
             appState.loadingState = .loadingCredentials
 
-            guard let baseURL = UserDefaults.standard.string(forKey: "baseURL"),
-                  let username = UserDefaults.standard.string(forKey: "stored_username") else {
+            guard let baseURL = UserDefaults.standard.string(forKey: AppStorageKey.baseURL.rawValue),
+                  let username = UserDefaults.standard.string(forKey: AppStorageKey.storedUsername.rawValue) else {
                 appState.loadingState = .noCredentialsSaved
                 return
             }
 
             bookCount = await downloadManager.preloadDownloadedBooksCount()
-
             appState.loadingState = .credentialsFoundValidating
 
             do {
                 let token = try KeychainService.shared.getToken(for: username)
-
-                // Configure the container — this is the single point where
-                // the real API client is created. All ViewModels are built
-                // after this call so they all receive valid credentials.
                 dependencies.configureAPI(baseURL: baseURL, token: token)
 
                 let client = dependencies.apiClient!
@@ -367,11 +159,7 @@ struct ContentView: View {
                     appState.loadingState = .loadingData
                     await initAppLibrary(client: client)
                     await dependencies.initializeSharedRepositories(isOnline: true)
-
-                    // Build ViewModels here — after configureAPI() — so they
-                    // receive the real client, not a placeholder.
                     rebuildViewModels()
-
                     appState.loadingState = .ready
                     setupCacheManager()
 
@@ -398,63 +186,26 @@ struct ContentView: View {
         }
     }
 
-    /// Creates all five ViewModels from the now-configured container.
-    /// Called exactly once per setup cycle, after configureAPI().
     private func rebuildViewModels() {
-        homeViewModel     = dependencies.makeHomeViewModel()
-        libraryViewModel  = dependencies.makeLibraryViewModel()
-        seriesViewModel   = dependencies.makeSeriesViewModel()
-        authorsViewModel  = dependencies.makeAuthorsViewModel()
-        downloadsViewModel = dependencies.makeDownloadsViewModel()
+        if let home = dependencies.makeHomeViewModel(),
+           let library = dependencies.makeLibraryViewModel(),
+           let series = dependencies.makeSeriesViewModel(),
+           let authors = dependencies.makeAuthorsViewModel(),
+           let downloads = dependencies.makeDownloadsViewModel() {
+            homeViewModel = home
+            libraryViewModel = library
+            seriesViewModel = series
+            authorsViewModel = authors
+            downloadsViewModel = downloads
+        }
     }
-
-    // MARK: - Helpers
 
     private func initAppLibrary(client: AudiobookshelfClient) async {
-            guard let libraryRepository = dependencies.libraryRepository else {
-                AppLogger.general.error("[ContentView] libraryRepository is nil — API not configured")
-                return
-            }
-
-            do {
-                let selectedLibrary = try await libraryRepository.initializeLibrarySelection()
-                if let library = selectedLibrary {
-                    AppLogger.general.info("[ContentView] Library initialized: \(library.name)")
-                } else {
-                    AppLogger.general.warn("[ContentView] No libraries available")
-                }
-            } catch let error as RepositoryError {
-                handleRepositoryError(error)
-            } catch {
-                AppLogger.general.error("[ContentView] Initial data load failed: \(error)")
-            }
-        }
-    private func handleRepositoryError(_ error: RepositoryError) {
-        switch error {
-        case .networkError(let urlError as URLError):
-            switch urlError.code {
-            case .notConnectedToInternet:
-                AppLogger.general.error("[ContentView] No internet — offline mode available")
-            case .timedOut:
-                AppLogger.general.error("[ContentView] Timeout — server might be slow")
-            default:
-                AppLogger.general.error("[ContentView] Network error: \(urlError)")
-            }
-        case .decodingError:
-            AppLogger.general.error("[ContentView] Data format error — check server version")
-        case .unauthorized:
-            appState.loadingState = .authenticationError
-        default:
-            AppLogger.general.error("[ContentView] Repository error: \(error)")
-        }
-    }
-
-    private func setupCacheManager() {
-        Task { @MainActor in
-            CoverCacheManager.shared.updateCacheLimits()
-            if UserDefaults.standard.bool(forKey: "cache_optimization_enabled") {
-                await CoverCacheManager.shared.optimizeCache()
-            }
+        guard let libraryRepository = dependencies.libraryRepository else { return }
+        do {
+            _ = try await libraryRepository.initializeLibrarySelection()
+        } catch {
+            AppLogger.general.error("[ContentView] Library init error: \(error)")
         }
     }
 
@@ -477,115 +228,16 @@ struct ContentView: View {
             return .networkError(.serverUnreachable)
         }
     }
-}
 
-// MARK: - Library Sidebar Filters
-
-struct LibrarySidebarFilters: View {
-    @Bindable var viewModel: LibraryViewModel
-
-    var body: some View {
-        Section("Filters & Sorting") {
-            Menu {
-                ForEach(LibrarySortOption.allCases) { option in
-                    Button {
-                        viewModel.filterState.selectedSortOption = option
-                        viewModel.filterState.saveToDefaults()
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if viewModel.filterState.selectedSortOption == option {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack {
-                    Image(systemName: "arrow.up.arrow.down")
-                    Text("Sort: \(viewModel.filterState.selectedSortOption.rawValue)")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
-                }
-            }
-
-            Button {
-                viewModel.filterState.sortAscending.toggle()
-                viewModel.filterState.saveToDefaults()
-            } label: {
-                HStack {
-                    Image(systemName: viewModel.filterState.sortAscending ? "arrow.up" : "arrow.down")
-                    Text(viewModel.filterState.sortAscending ? "Ascending" : "Descending")
-                    Spacer()
-                }
-            }
-
-            Button { viewModel.toggleDownloadFilter() } label: {
-                HStack {
-                    Label("Downloaded Only", systemImage: "arrow.down.circle")
-                    Spacer()
-                    if viewModel.filterState.showDownloadedOnly {
-                        Image(systemName: "checkmark").foregroundColor(.accentColor)
-                    }
-                }
-            }
-
-            Button { viewModel.toggleSeriesMode() } label: {
-                HStack {
-                    Label("Group Series", systemImage: "square.stack.3d.up")
-                    Spacer()
-                    if viewModel.filterState.showSeriesGrouped {
-                        Image(systemName: "checkmark").foregroundColor(.accentColor)
-                    }
-                }
-            }
-
-            if viewModel.filterState.hasActiveFilters {
-                Button(role: .destructive) {
-                    withAnimation(.spring(response: 0.3)) { viewModel.resetFilters() }
-                } label: {
-                    Label("Reset Filters", systemImage: "arrow.counterclockwise")
-                }
+    private func setupCacheManager() {
+        Task { @MainActor in
+            CoverCacheManager.shared.updateCacheLimits()
+            if UserDefaults.standard.bool(forKey: "cache_optimization_enabled") {
+                await CoverCacheManager.shared.optimizeCache()
             }
         }
     }
 }
-
-// MARK: - Series Sidebar Sort
-
-struct SeriesSidebarSort: View {
-    @Bindable var viewModel: SeriesViewModel
-
-    var body: some View {
-        Section("Sorting") {
-            Menu {
-                ForEach(SeriesSortOption.allCases, id: \.self) { option in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            viewModel.filterState.selectedSortOption = option
-                        }
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if viewModel.filterState.selectedSortOption == option {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack {
-                    Image(systemName: "arrow.up.arrow.down")
-                    Text("Sort: \(viewModel.filterState.selectedSortOption.rawValue)")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Connection Test Result
 
 enum ConnectionTestResult: Equatable {
     case success

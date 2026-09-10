@@ -102,20 +102,26 @@ struct BookCardView: View {
                 // Metadata - constrained to cover width
                 VStack(alignment: .leading, spacing: 2) {
                     Text(viewModel.book.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.headline)
                         .foregroundColor(theme.textColor)
                         .lineLimit(1)
                     
                     Text(viewModel.book.author ?? "Unknown Author")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.subheadline)
                         .foregroundColor(theme.textColor.opacity(0.6))
                         .lineLimit(1)
                 }
                 .frame(width: DSLayout.cardCoverNoPadding, alignment: .leading)
             }
+            .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isPlaying)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(viewModel.book.title) by \(viewModel.book.author ?? "Unknown Author")")
+        .accessibilityHint("Double tap to start playback or view book details")
+        .accessibilityAddTraits(.isButton)
         .contextMenu {
             if !viewModel.isDownloaded && api != nil {
                 Button(action: onDownload) {
@@ -141,9 +147,10 @@ struct BookCardView: View {
                 Label("Book Details", systemImage: "info.circle")
             }
         }
-        // 3. Sheet
         .sheet(isPresented: $isDetailViewPresented) {
-            BookDetailView(viewModel: container.makeBookDetailViewModel(bookId: viewModel.book.id))
+            if let detailVM = container.makeBookDetailViewModel(bookId: viewModel.book.id) {
+                BookDetailView(viewModel: detailVM)
+            }
         }
     }
 }

@@ -17,9 +17,8 @@ final class AppStateManager {
     // FIX: Added missing isFirstLaunch property with persistence
     var isFirstLaunch: Bool {
         didSet {
-            // When set to false, save that we have launched before
             if !isFirstLaunch {
-                UserDefaults.standard.set(true, forKey: "has_launched_before")
+                UserDefaults.standard.set(true, forKey: .hasLaunchedBefore)
             }
         }
     }
@@ -32,8 +31,7 @@ final class AppStateManager {
     
     // MARK: - Init
     private init() {
-        // Initialize isFirstLaunch from UserDefaults (default false -> isFirstLaunch = true)
-        let hasLaunched = UserDefaults.standard.bool(forKey: "has_launched_before")
+        let hasLaunched = UserDefaults.standard.bool(forKey: .hasLaunchedBefore)
         self.isFirstLaunch = !hasLaunched
     }
     

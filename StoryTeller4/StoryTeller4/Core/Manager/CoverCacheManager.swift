@@ -1,14 +1,29 @@
 import SwiftUI
 import Combine
+import Observation
 
 enum MemoryPressureLevel {
     case warning    // Standard iOS memory warning
     case critical   // Manual trigger for critical situations
 }
 
+// MARK: - CoverCacheManagerProtocol
+@MainActor
+protocol CoverCacheManagerProtocol: AnyObject, Sendable {
+    func getCachedImage(for key: String) -> UIImage?
+    func setCachedImage(_ image: UIImage, for key: String)
+    func getDiskCachedImage(for key: String) async -> UIImage?
+    func setDiskCachedImage(_ image: UIImage, for key: String) async
+    func clearMemoryCache()
+    func clearDiskCache()
+    func triggerCriticalCleanup()
+    func optimizeCache() async
+}
+
 // MARK: - Cover Cache Manager
 @MainActor
-class CoverCacheManager: ObservableObject {
+@Observable
+final class CoverCacheManager: CoverCacheManagerProtocol {
     static let shared = CoverCacheManager()
     
     private let cache = NSCache<NSString, UIImage>()
@@ -19,7 +34,7 @@ class CoverCacheManager: ObservableObject {
     private init() {
         // Setup memory cache
         cache.countLimit = 100
-        cache.totalCostLimit = 50 * 1024 * 1024 // 100MB
+        cache.totalCostLimit = 50 * 1024 * 1024 // 50MB limit
         
         // Setup disk cache directory
         let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -31,7 +46,7 @@ class CoverCacheManager: ObservableObject {
         setupMemoryWarningHandling()
     }
     
-    // Memory Warning Setup ohne Sendable closure
+    // Memory Warning Setup
     private func setupMemoryWarningHandling() {
         // Memory warning observer
         let memoryObserver = NotificationCenter.default.addObserver(
@@ -71,7 +86,7 @@ class CoverCacheManager: ObservableObject {
     }
     
     func setCachedImage(_ image: UIImage, for key: String) {
-        let cost = Int(image.size.width * image.size.height * 4) // Rough memory estimate
+        let cost = Int(image.size.width * image.size.height * 4) // Memory estimate
         cache.setObject(image, forKey: NSString(string: key), cost: cost)
     }
     
@@ -82,33 +97,38 @@ class CoverCacheManager: ObservableObject {
         return cacheDirectory.appendingPathComponent("\(filename).jpg")
     }
     
-    func getDiskCachedImage(for key: String) -> UIImage? {
-        let url = diskCacheURL(for: key)
-        guard fileManager.fileExists(atPath: url.path),
+    private nonisolated static func readDiskImage(at url: URL) -> UIImage? {
+        guard FileManager.default.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
               let image = UIImage(data: data) else {
             return nil
         }
-        
-        // Also store in memory cache
-        setCachedImage(image, for: key)
+        return image
+    }
+
+    private nonisolated static func writeDiskImage(_ image: UIImage, to url: URL) {
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
+        try? data.write(to: url)
+    }
+
+    func getDiskCachedImage(for key: String) async -> UIImage? {
+        let url = diskCacheURL(for: key)
+        let image = await Task.detached(priority: .userInitiated) {
+            Self.readDiskImage(at: url)
+        }.value
+        if let image {
+            setCachedImage(image, for: key)
+        }
         return image
     }
     
-    func setDiskCachedImage(_ image: UIImage, for key: String) {
+    func setDiskCachedImage(_ image: UIImage, for key: String) async {
         let url = diskCacheURL(for: key)
-        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-        
-        // Prüfen, ob Datei schon existiert
-        guard !fileManager.fileExists(atPath: url.path) else {
-            AppLogger.cache.debug("Image already cached for key: \(key)")
-            return
-        }
-
-        
-        try? data.write(to: url)
         setCachedImage(image, for: key)
-        
+        await Task.detached(priority: .utility) {
+            Self.writeDiskImage(image, to: url)
+        }.value
     }
     
     // MARK: - Cache Management

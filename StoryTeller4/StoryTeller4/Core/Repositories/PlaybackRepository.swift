@@ -1,18 +1,26 @@
 import Foundation
 
-// MARK: - PlaybackRepository
-//
-// actor: thread-safe, no @MainActor pinning, no ObservableObject, no @Published.
-// ViewModels own all observable state; this class is pure data layer.
-//
-// Init strategy: actors cannot call their own isolated methods synchronously
-// from init when the caller is on a different executor. We defer the load
-// via Task so the actor's executor picks it up asynchronously.
-//
-// Codable / PlaybackState isolation: PlaybackState.init(from:) and .updating()
-// are explicitly nonisolated in PlaybackModels.swift so they are callable from
-// any context without a MainActor hop.
+// MARK: - PlaybackRepositoryProtocol
+protocol PlaybackRepositoryProtocol: AnyObject, Sendable {
+    func configure(api: AudiobookshelfClient)
+    func setOnlineStatus(_ online: Bool) async
+    func getPlaybackState(for bookId: String) -> PlaybackState?
+    func getAllPlaybackStates() -> [PlaybackState]
+    func getRecentlyPlayed(limit: Int) -> [PlaybackState]
+    func saveState(_ state: PlaybackState) async
+    func loadStateForBook(_ itemId: String, book: Book) async -> PlaybackState?
+    func syncFromServer(onSyncingChanged: (@Sendable (Bool) -> Void)?) async
+    func deletePlaybackState(for bookId: String) async
+    func clearAllPlaybackStates() async
+}
 
+extension PlaybackRepositoryProtocol {
+    func syncFromServer() async {
+        await syncFromServer(onSyncingChanged: nil)
+    }
+}
+
+// MARK: - PlaybackRepository Implementation
 actor PlaybackRepository: PlaybackRepositoryProtocol {
 
     // MARK: - Singleton

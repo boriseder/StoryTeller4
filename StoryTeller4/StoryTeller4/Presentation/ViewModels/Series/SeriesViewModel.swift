@@ -14,10 +14,10 @@ class SeriesViewModel {
     // For smooth transitions
     var contentLoaded = false
 
-    // MARK: - Dependencies (alle Domain-Layer Protocols)
-    private let fetchSeriesUseCase: FetchSeriesUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCaseProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
+    // MARK: - Dependencies (Domain Layer Protocols)
+    private let bookRepository: any BookRepositoryProtocol
+    private let playBookUseCase: any PlayBookUseCaseProtocol
+    private let libraryRepository: any LibraryRepositoryProtocol
 
     let appState: AppStateManager
     let onBookSelected: () -> Void
@@ -30,13 +30,13 @@ class SeriesViewModel {
 
     // MARK: - Init
     init(
-        fetchSeriesUseCase: FetchSeriesUseCaseProtocol,
-        playBookUseCase: PlayBookUseCaseProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
+        bookRepository: any BookRepositoryProtocol,
+        playBookUseCase: any PlayBookUseCaseProtocol,
+        libraryRepository: any LibraryRepositoryProtocol,
         appState: AppStateManager,
         onBookSelected: @escaping () -> Void
     ) {
-        self.fetchSeriesUseCase = fetchSeriesUseCase
+        self.bookRepository = bookRepository
         self.playBookUseCase = playBookUseCase
         self.libraryRepository = libraryRepository
         self.appState = appState
@@ -59,7 +59,7 @@ class SeriesViewModel {
                 return
             }
 
-            let fetchedSeries = try await fetchSeriesUseCase.execute(libraryId: selectedLibrary.id)
+            let fetchedSeries = try await bookRepository.fetchSeries(libraryId: selectedLibrary.id)
 
             withAnimation(.easeInOut) {
                 series = fetchedSeries
@@ -96,26 +96,5 @@ class SeriesViewModel {
         errorMessage = error.localizedDescription
         showingErrorAlert = true
         AppLogger.general.debug("[SeriesViewModel] Repository error: \(error)")
-    }
-}
-
-// MARK: - Placeholder
-extension SeriesViewModel {
-    @MainActor
-    static var placeholder: SeriesViewModel {
-        let api = AudiobookshelfClient(baseURL: "", authToken: "")
-        let downloadManager = DownloadManager()
-        return SeriesViewModel(
-            fetchSeriesUseCase: FetchSeriesUseCase(bookRepository: BookRepository.placeholder),
-            playBookUseCase: PlayBookUseCase(
-                metadataService: BookMetadataService(api: api, downloadManager: downloadManager),
-                playbackService: PlaybackService(player: AudioPlayer(), api: api),
-                downloadManager: downloadManager,
-                appState: AppStateManager.shared
-            ),
-            libraryRepository: LibraryRepository.placeholder,
-            appState: AppStateManager.shared,
-            onBookSelected: {}
-        )
     }
 }

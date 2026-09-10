@@ -21,28 +21,51 @@ class DefaultNetworkService: NetworkService {
     }
     
     func performRequest<T: Decodable>(_ request: URLRequest, responseType: T.Type) async throws -> T {
-        do {
-            let (data, response) = try await urlSession.data(for: request)
-                        
-            try validateResponse(response, data: data)
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch let urlError as URLError {
-            // Provide more specific error handling for timeout cases
-            switch urlError.code {
-            case .timedOut:
+        var attempts = 0
+        let maxAttempts = 3
+        
+        while true {
+            attempts += 1
+            do {
+                let (data, response) = try await urlSession.data(for: request)
+                try validateResponse(response, data: data)
+                return try JSONDecoder().decode(T.self, from: data)
+            } catch let urlError as URLError {
+                if attempts < maxAttempts && isTransientURLError(urlError) {
+                    let delayNano = UInt64(pow(2.0, Double(attempts - 1)) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: delayNano)
+                    continue
+                }
                 throw AudiobookshelfError.networkError(urlError)
-            case .notConnectedToInternet, .networkConnectionLost:
-                throw AudiobookshelfError.networkError(urlError)
-            default:
-                throw AudiobookshelfError.networkError(urlError)
+            } catch let abError as AudiobookshelfError {
+                if attempts < maxAttempts && isTransientAudiobookshelfError(abError) {
+                    let delayNano = UInt64(pow(2.0, Double(attempts - 1)) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: delayNano)
+                    continue
+                }
+                throw abError
+            } catch let decodingError as DecodingError {
+                throw AudiobookshelfError.decodingError(decodingError)
+            } catch {
+                throw AudiobookshelfError.networkError(error)
             }
-        } catch let error as AudiobookshelfError {
-            throw error
-        } catch let decodingError as DecodingError {
-            throw AudiobookshelfError.decodingError(decodingError)
-        } catch {
-            throw AudiobookshelfError.networkError(error)
         }
+    }
+    
+    private func isTransientURLError(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .cannotConnectToHost, .networkConnectionLost, .dnsLookupFailed:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private func isTransientAudiobookshelfError(_ error: AudiobookshelfError) -> Bool {
+        if case .serverError(let statusCode, _) = error {
+            return statusCode == 502 || statusCode == 503 || statusCode == 504
+        }
+        return false
     }
     
     func createAuthenticatedRequest(url: URL, authToken: String) -> URLRequest {

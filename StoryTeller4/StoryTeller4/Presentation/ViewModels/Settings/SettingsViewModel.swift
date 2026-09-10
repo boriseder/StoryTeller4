@@ -31,13 +31,12 @@ class SettingsViewModel {
     private let testConnectionUseCase: TestConnectionUseCaseProtocol
     private let authenticationUseCase: AuthenticationUseCaseProtocol
     private let calculateStorageUseCase: CalculateStorageUseCaseProtocol
-    private let clearCacheUseCase: ClearCacheUseCaseProtocol
     private let saveCredentialsUseCase: SaveCredentialsUseCaseProtocol
     private let loadCredentialsUseCase: LoadCredentialsUseCaseProtocol
     private let logoutUseCase: LogoutUseCaseProtocol
 
     private let serverValidator: ServerConfigValidating
-    private let coverCacheManager: CoverCacheManager
+    private let coverCacheManager: any CoverCacheManagerProtocol
     private var settingsRepository: SettingsRepositoryProtocol
 
     let downloadManager: DownloadManager
@@ -51,12 +50,11 @@ class SettingsViewModel {
         testConnectionUseCase: TestConnectionUseCaseProtocol,
         authenticationUseCase: AuthenticationUseCaseProtocol,
         calculateStorageUseCase: CalculateStorageUseCaseProtocol,
-        clearCacheUseCase: ClearCacheUseCaseProtocol,
         saveCredentialsUseCase: SaveCredentialsUseCaseProtocol,
         loadCredentialsUseCase: LoadCredentialsUseCaseProtocol,
         logoutUseCase: LogoutUseCaseProtocol,
         serverValidator: ServerConfigValidating,
-        coverCacheManager: CoverCacheManager,
+        coverCacheManager: any CoverCacheManagerProtocol,
         downloadManager: DownloadManager,
         settingsRepository: SettingsRepositoryProtocol,
         libraryRepositoryFactory: @escaping (String, String) -> LibraryRepositoryProtocol
@@ -64,7 +62,6 @@ class SettingsViewModel {
         self.testConnectionUseCase = testConnectionUseCase
         self.authenticationUseCase = authenticationUseCase
         self.calculateStorageUseCase = calculateStorageUseCase
-        self.clearCacheUseCase = clearCacheUseCase
         self.saveCredentialsUseCase = saveCredentialsUseCase
         self.loadCredentialsUseCase = loadCredentialsUseCase
         self.logoutUseCase = logoutUseCase
@@ -238,12 +235,9 @@ class SettingsViewModel {
 
     func clearAllCache() async {
         storage.cacheOperationInProgress = true
-        do {
-            try await clearCacheUseCase.execute()
-            storage.lastCacheCleanupDate = Date()
-        } catch {
-            AppLogger.general.debug("[SettingsViewModel] Cache clear error: \(error)")
-        }
+        coverCacheManager.clearMemoryCache()
+        coverCacheManager.clearDiskCache()
+        storage.lastCacheCleanupDate = Date()
         await calculateStorageInfo()
         storage.cacheOperationInProgress = false
     }
@@ -317,10 +311,9 @@ class SettingsViewModel {
     // kein AudiobookshelfClient direkt im ViewModel.
     private func fetchLibraries(baseURL: String, token: String) async {
         let repository = libraryRepositoryFactory(baseURL, token)
-        let useCase = FetchLibrariesUseCase(libraryRepository: repository)
 
         do {
-            libraries = try await useCase.execute()
+            libraries = try await repository.getLibraries()
             restoreSelectedLibrary()
         } catch {
             connectionState = .failed("Failed to load libraries")

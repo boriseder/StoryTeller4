@@ -13,17 +13,17 @@ class AuthorsViewModel {
     var showingErrorAlert = false
     
     // MARK: - Dependencies
-    private let fetchAuthorsUseCase: FetchAuthorsUseCaseProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
+    private let bookRepository: any BookRepositoryProtocol
+    private let libraryRepository: any LibraryRepositoryProtocol
     let api: AudiobookshelfClient
 
     // MARK: - Init
     init(
-        fetchAuthorsUseCase: FetchAuthorsUseCaseProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
+        bookRepository: any BookRepositoryProtocol,
+        libraryRepository: any LibraryRepositoryProtocol,
         api: AudiobookshelfClient
     ) {
-        self.fetchAuthorsUseCase = fetchAuthorsUseCase
+        self.bookRepository = bookRepository
         self.libraryRepository = libraryRepository
         self.api = api
     }
@@ -41,7 +41,7 @@ class AuthorsViewModel {
                 return
             }
             
-            let fetchedAuthors = try await fetchAuthorsUseCase.execute(
+            let fetchedAuthors = try await bookRepository.fetchAuthors(
                 libraryId: selectedLibrary.id
             )
             
@@ -77,17 +77,5 @@ class AuthorsViewModel {
         errorMessage = error.localizedDescription
         showingErrorAlert = true
         AppLogger.general.debug("[AuthorsViewModel] Repository error: \(error)")
-    }
-}
-
-
-extension AuthorsViewModel {
-    @MainActor
-    static var placeholder: AuthorsViewModel {
-        AuthorsViewModel(
-            fetchAuthorsUseCase: FetchAuthorsUseCase(bookRepository: BookRepository.placeholder),
-            libraryRepository: LibraryRepository.placeholder,
-            api: AudiobookshelfClient(baseURL: "http://placeholder", authToken: "")
-        )
     }
 }

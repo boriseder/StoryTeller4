@@ -1,14 +1,8 @@
 import Foundation
+import Observation
 
 // MARK: - AudiobookshelfClient
-//
-// Marked @unchecked Sendable because all stored properties are either
-// immutable (let) value types (APIConfig) or service objects that are
-// themselves stateless after construction. No mutable shared state exists
-// after init completes, making cross-actor use safe in practice.
-//
-// Combine import removed — nothing in this file used it.
-
+@Observable
 final class AudiobookshelfClient: @unchecked Sendable {
     let connection: any ConnectionServiceProtocol
     let libraries: any LibraryServiceProtocol

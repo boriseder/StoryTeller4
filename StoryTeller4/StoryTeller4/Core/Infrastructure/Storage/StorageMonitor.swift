@@ -52,16 +52,8 @@ enum StorageWarningLevel: Sendable {
     }
 }
 
-protocol StorageMonitoring: Sendable {
-    func getStorageInfo() -> DeviceStorageInfo
-    func getWarningLevel() -> StorageWarningLevel
-    func hasEnoughSpace(required: Int64) -> Bool
-    func calculateDirectorySize(at url: URL) -> Int64
-    func formatBytes(_ bytes: Int64) -> String
-}
-
 // Final and Sendable because FileManager.default is thread-safe and stateless wrapper
-final class StorageMonitor: StorageMonitoring, Sendable {
+final class StorageMonitor: Sendable {
     
     private let fileManager = FileManager.default
     

@@ -16,12 +16,11 @@ class HomeViewModel {
     var contentLoaded = false
     var sectionsLoaded = false
 
-    // MARK: - Dependencies (alle Domain-Layer Protocols)
-    private let fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCaseProtocol
-    private let fetchLibraryStatsUseCase: FetchLibraryStatsUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCaseProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
-    private let coverPreloadService: CoverPreloadServiceProtocol
+    // MARK: - Dependencies (Domain Layer Protocols)
+    private let bookRepository: any BookRepositoryProtocol
+    private let libraryRepository: any LibraryRepositoryProtocol
+    private let playBookUseCase: any PlayBookUseCaseProtocol
+    private let coverPreloadService: any CoverPreloadServiceProtocol
     private let appState: AppStateManager
 
     let onBookSelected: () -> Void
@@ -32,24 +31,21 @@ class HomeViewModel {
     }
 
     var downloadedCount: Int {
-        // Placeholder: wird via DownloadRepository befüllt sobald refactored
         0
     }
 
     // MARK: - Init
     init(
-        fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCaseProtocol,
-        fetchLibraryStatsUseCase: FetchLibraryStatsUseCaseProtocol,
-        playBookUseCase: PlayBookUseCaseProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
-        coverPreloadService: CoverPreloadServiceProtocol,
+        bookRepository: any BookRepositoryProtocol,
+        libraryRepository: any LibraryRepositoryProtocol,
+        playBookUseCase: any PlayBookUseCaseProtocol,
+        coverPreloadService: any CoverPreloadServiceProtocol,
         appState: AppStateManager,
         onBookSelected: @escaping () -> Void
     ) {
-        self.fetchPersonalizedSectionsUseCase = fetchPersonalizedSectionsUseCase
-        self.fetchLibraryStatsUseCase = fetchLibraryStatsUseCase
-        self.playBookUseCase = playBookUseCase
+        self.bookRepository = bookRepository
         self.libraryRepository = libraryRepository
+        self.playBookUseCase = playBookUseCase
         self.coverPreloadService = coverPreloadService
         self.appState = appState
         self.onBookSelected = onBookSelected
@@ -75,14 +71,11 @@ class HomeViewModel {
                 return
             }
 
-            async let sectionsTask = fetchPersonalizedSectionsUseCase.execute(libraryId: selectedLibrary.id)
-            async let statsTask = fetchLibraryStatsUseCase.execute(libraryId: selectedLibrary.id)
-
-            let (fetchedSections, totalBooks) = try await (sectionsTask, statsTask)
+            let fetchedSections = try await bookRepository.fetchPersonalizedSections(libraryId: selectedLibrary.id)
 
             withAnimation(.easeInOut) {
                 personalizedSections = fetchedSections
-                totalBooksInLibrary = totalBooks
+                totalBooksInLibrary = fetchedSections.reduce(0) { $0 + $1.entities.count }
             }
 
             coverPreloadService.preloadCovers(
@@ -123,38 +116,7 @@ class HomeViewModel {
         sections.flatMap { section in
             section.entities
                 .compactMap { $0.asLibraryItem }
-                .compactMap { $0.toBook() } // Extension auf LibraryItem – kein Converter nötig
+                .compactMap { $0.toBook() }
         }
-    }
-}
-
-// MARK: - Placeholder
-extension HomeViewModel {
-    @MainActor
-    static var placeholder: HomeViewModel {
-        HomeViewModel(
-            fetchPersonalizedSectionsUseCase: FetchPersonalizedSectionsUseCase(
-                bookRepository: BookRepository.placeholder
-            ),
-            fetchLibraryStatsUseCase: FetchLibraryStatsUseCase(
-                libraryStatsRepository: LibraryStatsRepository.placeholder
-            ),
-            playBookUseCase: PlayBookUseCase(
-                metadataService: BookMetadataService(
-                    api: AudiobookshelfClient(baseURL: "", authToken: ""),
-                    downloadManager: DownloadManager()
-                ),
-                playbackService: PlaybackService(
-                    player: AudioPlayer(),
-                    api: AudiobookshelfClient(baseURL: "", authToken: "")
-                ),
-                downloadManager: DownloadManager(),
-                appState: AppStateManager.shared
-            ),
-            libraryRepository: LibraryRepository.placeholder,
-            coverPreloadService: CoverPreloadService.placeholder,
-            appState: AppStateManager.shared,
-            onBookSelected: {}
-        )
     }
 }

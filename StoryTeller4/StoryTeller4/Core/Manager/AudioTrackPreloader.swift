@@ -35,9 +35,7 @@ actor AudioTrackPreloader {
         
         currentPreloadTask?.cancel()
         
-        currentPreloadTask = Task { [weak self] in
-            guard let self = self else { return }
-            
+        currentPreloadTask = Task {
             if isOffline {
                 await self.preloadOfflineTrack(
                     bookId: book.id,
@@ -53,7 +51,7 @@ actor AudioTrackPreloader {
                 )
             }
             
-            let success = await self.preloadedItems[nextIndex] != nil
+            let success = self.preloadedItems[nextIndex] != nil
             completion?(success)
         }
     }

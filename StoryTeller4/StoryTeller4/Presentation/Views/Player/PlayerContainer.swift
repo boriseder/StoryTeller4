@@ -35,32 +35,10 @@ struct PlayerContainer<Content: View>: View {
         ZStack {
             content
 
-            if playerStateManager.mode == .mini, player.book != nil {
-                VStack {
-                    Spacer()
-                    MiniPlayerView(
-                        player: player,
-                        api: api,
-                        onTap: {
-                            withAnimation(.easeInOut(duration: 0.4)) {
-                                playerStateManager.showFullscreen()
-                            }
-                        },
-                        onDismiss: {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                playerStateManager.hideMiniPlayer()
-                            }
-                        }
-                    )
-                    .padding(.bottom, DSLayout.miniPlayerHeight)
-                }
-            }
-
             if playerStateManager.mode == .fullscreen {
                 fullscreenPlayer
             }
         }
-        
         .animation(.easeInOut(duration: 0.3), value: playerStateManager.mode)
         .onChange(of: player.book) { _, newBook in
             playerStateManager.updatePlayerState(hasBook: newBook != nil)

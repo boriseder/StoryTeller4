@@ -6,7 +6,7 @@ import Security
 final class KeychainService: Sendable {
     static let shared = KeychainService()
     
-    private let service = "com.storyteller3.audiobookshelf"
+    private let service = Bundle.main.bundleIdentifier ?? "at.amtabor.StoryTeller4"
     
     private init() {}
     

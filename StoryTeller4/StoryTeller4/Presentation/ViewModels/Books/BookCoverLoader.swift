@@ -12,27 +12,28 @@ class BookCoverLoader {
     private let book: Book
     private let api: AudiobookshelfClient?
     private let downloadManager: DownloadManager?
+    private let cacheManager: any CoverCacheManagerProtocol
     private var loadTask: Task<Void, Never>?
     
-    init(book: Book, api: AudiobookshelfClient?, downloadManager: DownloadManager?) {
+    init(
+        book: Book,
+        api: AudiobookshelfClient?,
+        downloadManager: DownloadManager?,
+        cacheManager: any CoverCacheManagerProtocol = CoverCacheManager.shared
+    ) {
         self.book = book
         self.api = api
         self.downloadManager = downloadManager
+        self.cacheManager = cacheManager
     }
     
     func load() {
         // Cancel any existing load task
         loadTask?.cancel()
         
-        // Check caches first
-        if let cached = CoverCacheManager.shared.getCachedImage(for: book.id) {
+        // Check memory cache first
+        if let cached = cacheManager.getCachedImage(for: book.id) {
             self.image = cached
-            self.hasError = false
-            return
-        }
-        
-        if let diskCached = CoverCacheManager.shared.getDiskCachedImage(for: book.id) {
-            self.image = diskCached
             self.hasError = false
             return
         }
@@ -55,10 +56,19 @@ class BookCoverLoader {
         let baseURL = api.baseURLString
         let token = api.authToken
         let bookId = book.id
-        // Note: We don't use the raw string path anymore in the manager, passing true effectively
         let hasCover = true
+        let cacheManager = self.cacheManager
         
         loadTask = Task {
+            // Check disk cache asynchronously off main thread
+            if let diskCached = await cacheManager.getDiskCachedImage(for: bookId) {
+                guard !Task.isCancelled else { return }
+                self.image = diskCached
+                self.isLoading = false
+                self.hasError = false
+                return
+            }
+            
             var downloadedImage: UIImage?
             
             do {
@@ -67,7 +77,7 @@ class BookCoverLoader {
                     hasCover: hasCover,
                     baseURL: baseURL,
                     authToken: token,
-                    cacheManager: CoverCacheManager.shared
+                    cacheManager: cacheManager
                 )
             } catch {
                 AppLogger.network.error("[BookCoverLoader] Failed to download cover: \(error)")
@@ -76,14 +86,12 @@ class BookCoverLoader {
             // Check if task was cancelled
             guard !Task.isCancelled else { return }
             
-            await MainActor.run {
-                self.isLoading = false
-                if let image = downloadedImage {
-                    self.image = image
-                    self.hasError = false
-                } else {
-                    self.hasError = true
-                }
+            self.isLoading = false
+            if let image = downloadedImage {
+                self.image = image
+                self.hasError = false
+            } else {
+                self.hasError = true
             }
         }
     }

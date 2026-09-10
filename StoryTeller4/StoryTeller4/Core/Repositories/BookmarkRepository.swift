@@ -1,17 +1,18 @@
 import Foundation
 
-// MARK: - BookmarkRepository
-//
-// actor: thread-safe, no @MainActor, no ObservableObject, no @Published.
-//
-// Static key helpers are nonisolated — they are pure string computations
-// with no state, so there is no reason to tie them to any actor executor.
-// Marking them nonisolated makes them callable from any context (actor
-// body, nonisolated methods, init) without an isolation conflict.
-//
-// Init strategy: same as PlaybackRepository — defer the actor-isolated
-// loadCachedBookmarks() call via Task so the actor's executor picks it up.
+// MARK: - BookmarkRepositoryProtocol
+protocol BookmarkRepositoryProtocol: AnyObject, Sendable {
+    func configure(api: AudiobookshelfClient)
+    func getBookmarks(for libraryItemId: String) -> [Bookmark]
+    func getAllBookmarks() -> [String: [Bookmark]]
+    func syncFromServer() async throws
+    func createBookmark(libraryItemId: String, time: Double, title: String) async throws -> Bookmark
+    func updateBookmark(libraryItemId: String, time: Double, newTitle: String) async throws -> Bookmark
+    func deleteBookmark(libraryItemId: String, time: Double) async throws
+    func clearCache() async
+}
 
+// MARK: - BookmarkRepository Implementation
 actor BookmarkRepository: BookmarkRepositoryProtocol {
 
     // MARK: - Singleton

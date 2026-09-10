@@ -11,6 +11,7 @@ class BookCardViewModel: Identifiable {
     // Direct accessors
     private var player: AudioPlayer { container.player }
     private var downloadManager: DownloadManager { container.downloadManager }
+    private var playbackRepository: any PlaybackRepositoryProtocol { container.playbackRepository }
     
     // State
     var cachedState: PlaybackState?
@@ -23,8 +24,8 @@ class BookCardViewModel: Identifiable {
         self.book = book
         self.container = container
         
-        // Synchronous load
-        self.cachedState = PlaybackRepository.shared.getPlaybackState(for: book.id)
+        // Synchronous load via injected container
+        self.cachedState = container.playbackRepository.getPlaybackState(for: book.id)
         self.isLoadingState = false
     }
     
@@ -73,7 +74,7 @@ class BookCardViewModel: Identifiable {
         guard cachedState == nil else { return }
         
         isLoadingState = true
-        cachedState = await PlaybackRepository.shared.loadStateForBook(book.id, book: book)
+        cachedState = await playbackRepository.loadStateForBook(book.id, book: book)
         isLoadingState = false
     }
     
@@ -85,7 +86,7 @@ class BookCardViewModel: Identifiable {
     // MARK: - Public refresh method
     
     func refreshState() {
-        self.cachedState = PlaybackRepository.shared.getPlaybackState(for: book.id)
+        self.cachedState = playbackRepository.getPlaybackState(for: book.id)
         Task {
             await refreshFromServer()
         }

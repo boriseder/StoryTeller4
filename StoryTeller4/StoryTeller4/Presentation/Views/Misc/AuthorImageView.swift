@@ -6,17 +6,16 @@ struct AuthorImageView: View {
     let api: AudiobookshelfClient?
     let size: CGFloat
     
-    // FIX: Use @State for @Observable loader
-    @State private var loader: AuthorImageLoader
+    @State private var loader: MediaImageLoader
     
     init(author: Author, api: AudiobookshelfClient? = nil, size: CGFloat = 60) {
         self.author = author
         self.api = api
         self.size = size
         
-        // FIX: Initialize with State(initialValue:)
-        self._loader = State(initialValue: AuthorImageLoader(
-            author: author,
+        self._loader = State(initialValue: MediaImageLoader(
+            cacheKey: "author_\(author.id)",
+            imagePath: author.imagePath,
             api: api
         ))
     }
@@ -41,7 +40,7 @@ struct AuthorImageView: View {
             loader.load()
         }
         .onDisappear {
-            loader.cancelLoading()
+            loader.cancel()
         }
         .animation(.easeInOut(duration: 0.3), value: loader.image != nil)
     }

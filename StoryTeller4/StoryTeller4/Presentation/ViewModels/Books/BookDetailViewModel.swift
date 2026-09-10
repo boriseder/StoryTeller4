@@ -25,16 +25,17 @@ class BookDetailViewModel {
     // MARK: - Dependencies
 
     private let bookId: String
-    private let bookRepository: BookRepository
+    private let bookRepository: any BookRepositoryProtocol
     private let downloadManager: DownloadManager   // UI state observation only
     private let downloadUseCase: any DownloadBookUseCaseProtocol
     private let api: AudiobookshelfClient
+    private var loadTask: Task<Void, Never>?
 
     // MARK: - Init
 
     init(
         bookId: String,
-        bookRepository: BookRepository,
+        bookRepository: any BookRepositoryProtocol,
         downloadManager: DownloadManager,
         downloadUseCase: any DownloadBookUseCaseProtocol,
         api: AudiobookshelfClient
@@ -51,17 +52,20 @@ class BookDetailViewModel {
     // MARK: - Loading
 
     func loadBookDetails() {
+        loadTask?.cancel()
         isLoading = true
         errorMessage = nil
 
-        Task {
+        loadTask = Task {
             do {
                 let fetchedBook = try await bookRepository.fetchBookDetails(bookId: bookId)
+                guard !Task.isCancelled else { return }
                 self.book = fetchedBook
                 let rawDescription = fetchedBook.description ?? "No description available."
                 self.formattedDescription = rawDescription.htmlToAttributedString()
                 self.isLoading = false
             } catch {
+                guard !Task.isCancelled else { return }
                 self.errorMessage = "Failed to load book details: \(error.localizedDescription)"
                 self.isLoading = false
             }

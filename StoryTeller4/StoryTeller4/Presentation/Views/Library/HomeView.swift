@@ -43,21 +43,21 @@ struct HomeView: View {
             SeriesDetailView(series: series, container: dependencies, onBookSelected: {})
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(.black.opacity(0.65))
+                .presentationBackground(.ultraThinMaterial)
         }
         .sheet(item: $selectedAuthor) { author in
-            AuthorDetailView(
-                viewModel: dependencies.makeAuthorDetailViewModel(author: author, onBookSelected: {})
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.black.opacity(0.65))
+            if let authorVM = dependencies.makeAuthorDetailViewModel(author: author, onBookSelected: {}) {
+                AuthorDetailView(viewModel: authorVM)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(.ultraThinMaterial)
+            }
         }
         .sheet(isPresented: $showBookmarks) {
             BookmarksView()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(.black.opacity(0.65))
+                .presentationBackground(.ultraThinMaterial)
         }
     }
 

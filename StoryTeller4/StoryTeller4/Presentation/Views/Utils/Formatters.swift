@@ -1,5 +1,7 @@
 import Foundation
+import SwiftUI
 
+// MARK: - Time Formatter
 struct TimeFormatter: Sendable {
     static func formatTime(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
@@ -46,9 +48,32 @@ struct TimeFormatter: Sendable {
     }
 }
 
-// MARK: - Double Extension
+// MARK: - Double Extensions
 extension Double {
     var formattedAsTime: String { TimeFormatter.formatTime(self) }
     var formattedAsCompactTime: String { TimeFormatter.formatTimeCompact(self) }
     var formattedAsTimeRemaining: String { TimeFormatter.formatTimeRemaining(self) }
+}
+
+// MARK: - HTML String Extension
+extension String {
+    func htmlToAttributedString() -> AttributedString {
+        guard let data = self.data(using: .utf8) else {
+            return AttributedString(self)
+        }
+        
+        do {
+            let nsString = try NSAttributedString(
+                data: data,
+                options: [
+                    .documentType: NSAttributedString.DocumentType.html,
+                    .characterEncoding: String.Encoding.utf8.rawValue
+                ],
+                documentAttributes: nil
+            )
+            return AttributedString(nsString.string)
+        } catch {
+            return AttributedString(self)
+        }
+    }
 }

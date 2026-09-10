@@ -29,10 +29,10 @@ class SeriesDetailViewModel {
         return CoverPreloadService(api: api, downloadManager: container.downloadManager)
     }
 
-    private var libraryRepository: LibraryRepositoryProtocol? { container.libraryRepository }
+    private var libraryRepository: (any LibraryRepositoryProtocol)? { container.libraryRepository }
+    private var bookRepository: (any BookRepositoryProtocol)? { container.bookRepository }
 
-    private let fetchSeriesBooksUseCase: FetchSeriesBooksUseCaseProtocol
-    private let playBookUseCase: PlayBookUseCaseProtocol
+    private let playBookUseCase: any PlayBookUseCaseProtocol
 
     // MARK: - Init from Series
     init(
@@ -46,9 +46,6 @@ class SeriesDetailViewModel {
         self.container = container
         self.onBookSelected = onBookSelected
 
-        let bookRepository = container.bookRepository
-            ?? BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: ""))
-        self.fetchSeriesBooksUseCase = FetchSeriesBooksUseCase(bookRepository: bookRepository)
         self.playBookUseCase = container.services.makePlayBookUseCase(
             api: container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
         )
@@ -69,9 +66,6 @@ class SeriesDetailViewModel {
         self.container = container
         self.onBookSelected = onBookSelected
 
-        let bookRepository = container.bookRepository
-            ?? BookRepository(api: AudiobookshelfClient(baseURL: "", authToken: ""))
-        self.fetchSeriesBooksUseCase = FetchSeriesBooksUseCase(bookRepository: bookRepository)
         self.playBookUseCase = container.services.makePlayBookUseCase(
             api: container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: "")
         )
@@ -79,10 +73,10 @@ class SeriesDetailViewModel {
 
     // MARK: - Actions
     func loadSeriesBooks() async {
-        guard let libraryRepository else {
+        guard let libraryRepository, let bookRepository else {
             errorMessage = "Not logged in — cannot load series"
             showingErrorAlert = true
-            AppLogger.general.error("[SeriesDetailVM] libraryRepository is nil — API not configured yet")
+            AppLogger.general.error("[SeriesDetailVM] Repositories nil — API not configured yet")
             return
         }
 
@@ -97,7 +91,7 @@ class SeriesDetailViewModel {
             errorMessage = nil
             showingErrorAlert = false
 
-            let books = try await fetchSeriesBooksUseCase.execute(
+            let books = try await bookRepository.fetchSeriesBooks(
                 libraryId: library.id,
                 seriesId: seriesId
             )
