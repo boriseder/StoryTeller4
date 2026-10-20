@@ -1,0 +1,164 @@
+import SwiftUI
+
+struct BookDetailView: View {
+    @State var viewModel: BookDetailViewModel
+    @Environment(\.dismiss) var dismiss
+
+    @Environment(PlayerStateManager.self) private var playerStateManager
+    @Environment(DependencyContainer.self) private var container
+    @Environment(AppStateManager.self) private var appState
+
+    var body: some View {
+        Group {
+            if viewModel.isLoading {
+                LoadingView()
+            } else if let errorMessage = viewModel.errorMessage {
+                ErrorView(error: errorMessage)
+            } else if let book = viewModel.book {
+                bookDetailContent(book: book)
+            } else {
+                ErrorView(error: "Book details could not be loaded.")
+            }
+        }
+        .navigationTitle(viewModel.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(DSColor.background.ignoresSafeArea())
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private func bookDetailContent(book: Book) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DSLayout.contentGap) {
+
+                HStack(alignment: .top, spacing: DSLayout.elementGap) {
+                    BookCoverView.bookAspect(
+                        book: book,
+                        width: 120,
+                        api: container.apiClient,
+                        downloadManager: container.downloadManager
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: DSCorners.element))
+
+                    VStack(alignment: .leading, spacing: DSLayout.tightGap) {
+                        Text(viewModel.title)
+                            .font(DSText.sectionTitle)
+                            .foregroundColor(DSColor.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(viewModel.author)
+                            .font(DSText.emphasized)
+                            .foregroundColor(DSColor.secondary)
+
+                        downloadControlView(book: book)
+                            .padding(.top, DSLayout.tightPadding)
+                    }
+                }
+                .padding(.horizontal, DSLayout.screenPadding)
+
+                HStack {
+                    Button(action: { playBook(book) }) {
+                        Label("Play Book", systemImage: "play.fill")
+                            .font(DSText.largeButton)
+                            .frame(maxWidth: .infinity)
+                            .padding(DSLayout.elementPadding)
+                            .background(DSColor.accent)
+                            .foregroundColor(DSColor.onDark)
+                            .cornerRadius(DSCorners.content)
+                    }
+                }
+                .padding(.horizontal, DSLayout.screenPadding)
+
+                if viewModel.hasDescription {
+                    VStack(alignment: .leading, spacing: DSLayout.elementGap) {
+                        Text("Description")
+                            .font(DSText.prominent)
+                            .foregroundColor(DSColor.primary)
+
+                        Text(viewModel.formattedDescription)
+                            .font(DSText.body)
+                            .foregroundColor(DSColor.secondary)
+                    }
+                    .padding(.horizontal, DSLayout.screenPadding)
+                }
+
+                if !viewModel.chapters.isEmpty {
+                    InteractiveChapterListView(
+                        chapters: viewModel.chapters,
+                        onChapterTap: { index in playChapter(book, at: index) }
+                    )
+                    .padding(.horizontal, DSLayout.screenPadding)
+                }
+            }
+            .padding(.vertical, DSLayout.contentGap)
+        }
+    }
+
+    @ViewBuilder
+    private func downloadControlView(book: Book) -> some View {
+        switch viewModel.downloadState {
+        case .notDownloaded:
+            Button(action: viewModel.downloadBook) {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.bordered)
+            .tint(DSColor.accent)
+
+        case .queued:
+            Button(action: viewModel.cancelDownload) {
+                Label("Cancel Queue", systemImage: "pause.circle")
+            }
+            .buttonStyle(.bordered)
+            .tint(DSColor.warning)
+
+        case .downloading(let progress):
+            ProgressView(value: progress) {
+                Text(String(format: "Downloading %.0f%%", progress * 100))
+                    .font(DSText.metadata)
+            }
+            .progressViewStyle(.linear)
+            .tint(DSColor.accent)
+
+        case .downloaded:
+            Menu {
+                Button(role: .destructive, action: viewModel.deleteDownloadedBook) {
+                    Label("Delete Download", systemImage: "trash")
+                }
+            } label: {
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .foregroundColor(DSColor.downloaded)
+                    .font(DSText.button)
+            }
+        }
+    }
+
+    // MARK: - Playback
+    // PlayBookUseCase wird über container.services gebaut –
+    // kein AudiobookshelfClient direkt im View.
+
+    private func playBook(_ book: Book) {
+        Task {
+            do {
+                let useCase = container.services.makePlayBookUseCase(api: container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""))
+                try await useCase.execute(book: book, restoreState: true, autoPlay: true)
+                playerStateManager.showPlayerBasedOnSettings()
+            } catch {
+                AppLogger.general.error("Failed to play book: \(error)")
+            }
+        }
+    }
+
+    private func playChapter(_ book: Book, at index: Int) {
+        Task {
+            do {
+                let useCase = container.services.makePlayBookUseCase(api: container.apiClient ?? AudiobookshelfClient(baseURL: "", authToken: ""))
+                try await useCase.execute(book: book, restoreState: false, autoPlay: true)
+                container.player.setCurrentChapter(index: index)
+                playerStateManager.showPlayerBasedOnSettings()
+            } catch {
+                AppLogger.general.error("Failed to play chapter: \(error)")
+            }
+        }
+    }
+}
